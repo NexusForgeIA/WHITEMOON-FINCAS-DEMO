@@ -1,0 +1,23 @@
+[functions.fincas-chat]
+verify_jwt = false
+
+[functions.fincas-notify]
+verify_jwt = false
+
+[functions.fincas-enviar-email]
+verify_jwt = false
+
+[functions.fincas-inbound]
+verify_jwt = false
+
+[functions.fincas-presupuesto]
+verify_jwt = false
+
+[functions.fincas-contable]
+verify_jwt = false
+
+[functions.fincas-privado]
+verify_jwt = false
+
+[functions.fincas-panel-auth]
+verify_jwt = false
