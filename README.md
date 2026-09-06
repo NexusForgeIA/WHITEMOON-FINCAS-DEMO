@@ -64,6 +64,11 @@ Tres capas, de dentro afuera. No se confía en el prompt.
 La comunidad activa sólo se fija de dos maneras: el selector de la web, o
 resolver un inmueble real con `buscar_inmueble`. Nunca por deducción.
 
+Las dos funciones de la demo llevan además `search_path = pg_catalog, public`
+fijo. Tener el filtro por comunidad cableado no serviría de nada si
+`fincas_protocolos` pudiera resolverse a otra tabla porque quien llama tenga
+otro esquema por delante en su search_path.
+
 ---
 
 ## La IA prepara; el administrador decide
