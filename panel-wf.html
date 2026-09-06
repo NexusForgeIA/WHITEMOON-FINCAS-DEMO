@@ -13,35 +13,50 @@
 </head>
 <body class="crm">
 
-<!-- ================================================================ LOGIN -->
+<!-- ================================================================ ACCESO -->
+<!-- Una clave, sin usuario. La comprobación NO está aquí: este formulario
+     sólo manda la clave a la Edge Function fincas-panel-auth, que la valida
+     contra un Secret (o su hash) y devuelve una sesión real de Supabase. Un
+     candado de JavaScript no serviría de nada: detrás hay IBAN y datos de
+     propietarios, y cualquiera puede abrir las herramientas del navegador. -->
 <div class="login-velo" id="login">
   <div class="login-caja">
     <div class="marca">
       <span class="luna" aria-hidden="true"></span>
       <span class="marca-txt">
         <b>Whitemoon Fincas</b>
-        <span>CRM privado</span>
+        <span>Gestión interna</span>
       </span>
     </div>
-    <h1>Acceso administrador</h1>
-    <p>Sólo para el equipo de administración y contabilidad.</p>
+    <h1>Acceso al panel</h1>
+    <p>Introduce la clave de acceso del equipo.</p>
 
-    <form id="form-login" autocomplete="on">
+    <form id="form-clave" autocomplete="off">
+      <div class="campo">
+        <label for="clave">Clave de acceso</label>
+        <input id="clave" type="password" required autocomplete="one-time-code"
+               placeholder="••••••••••••" autofocus>
+      </div>
+      <p class="login-error" id="login-error" hidden></p>
+      <button class="btn btn-p" type="submit" id="clave-btn" style="justify-content:center">Entrar</button>
+    </form>
+
+    <!-- Vía alternativa para el equipo, no anunciada en ningún sitio. -->
+    <p style="margin-top:22px;font-size:12px;color:var(--muted)">
+      <a href="#" id="ver-email">Entrar con email y contraseña</a>
+    </p>
+
+    <form id="form-login" autocomplete="on" hidden style="margin-top:6px">
       <div class="campo">
         <label for="login-email">Email</label>
-        <input id="login-email" type="email" required autocomplete="username">
+        <input id="login-email" type="email" autocomplete="username">
       </div>
       <div class="campo">
         <label for="login-pass">Contraseña</label>
-        <input id="login-pass" type="password" required autocomplete="current-password">
+        <input id="login-pass" type="password" autocomplete="current-password">
       </div>
-      <p class="login-error" id="login-error" hidden></p>
-      <button class="btn btn-p" type="submit" id="login-btn" style="justify-content:center">Entrar</button>
+      <button class="btn btn-linea" type="submit" id="login-btn" style="justify-content:center">Entrar</button>
     </form>
-
-    <p style="margin-top:20px;font-size:12px;color:var(--muted)">
-      ¿Eres vecino? <a href="./">Vuelve a la web</a> y cuéntanoslo por el chat.
-    </p>
   </div>
 </div>
 
@@ -49,13 +64,13 @@
 <div class="crm-shell" id="shell" hidden>
 
   <aside class="lateral">
-    <a class="marca" href="./">
+    <div class="marca">
       <span class="luna" aria-hidden="true"></span>
       <span class="marca-txt">
         <b>Whitemoon Fincas</b>
-        <span>CRM</span>
+        <span>Gestión interna</span>
       </span>
-    </a>
+    </div>
 
     <nav id="nav">
       <button class="nav-btn activo" data-seccion="expedientes">

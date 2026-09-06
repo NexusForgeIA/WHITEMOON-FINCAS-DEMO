@@ -66,6 +66,56 @@ async function jwt() {
   return data?.session?.access_token ?? "";
 }
 
+/**
+ * Entrada por clave. Este código NO valida nada: manda la clave a
+ * fincas-panel-auth y espera a ver qué contesta. La comprobación vive en el
+ * servidor, contra un Secret o su hash bcrypt, y lo que vuelve es una sesión
+ * real de Supabase Auth. A partir de ahí el CRM funciona bajo RLS igual que
+ * con cualquier otro login: si alguien se saltara este formulario a la
+ * fuerza, seguiría sin tener sesión y no leería una fila.
+ */
+async function entrarConClave(ev) {
+  ev.preventDefault();
+  const btn = $("clave-btn");
+  const err = $("login-error");
+  err.hidden = true;
+  btn.disabled = true;
+  btn.textContent = "Comprobando…";
+
+  try {
+    const r = await fetch(FN("fincas-panel-auth"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clave: $("clave").value }),
+    }).then((x) => x.json());
+
+    if (!r?.ok || !r.session?.access_token) {
+      err.textContent = r?.error ?? "No se ha podido comprobar la clave.";
+      err.hidden = false;
+      return;
+    }
+
+    const { error } = await sb.auth.setSession({
+      access_token: r.session.access_token,
+      refresh_token: r.session.refresh_token,
+    });
+    if (error) {
+      err.textContent = "La sesión no se ha podido establecer: " + error.message;
+      err.hidden = false;
+      return;
+    }
+    $("clave").value = "";
+    await arranca();
+  } catch (e) {
+    console.warn("[crm] acceso:", e);
+    err.textContent = "No se ha podido conectar. Inténtalo de nuevo.";
+    err.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Entrar";
+  }
+}
+
 async function entrar(ev) {
   ev.preventDefault();
   const btn = $("login-btn");
@@ -1132,7 +1182,13 @@ $("cerrar-modal").onclick = cierraModal;
 velo.addEventListener("click", (ev) => { if (ev.target === velo) cierraModal(); });
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !velo.hidden) cierraModal(); });
 $("salir").onclick = salir;
+$("form-clave").addEventListener("submit", entrarConClave);
 $("form-login").addEventListener("submit", entrar);
+$("ver-email").addEventListener("click", (ev) => {
+  ev.preventDefault();
+  const f = $("form-login");
+  f.hidden = !f.hidden;
+});
 
 
 /* ====================================================================== */
@@ -1600,7 +1656,7 @@ async function arranca() {
     $("login").hidden = false;
     $("shell").hidden = true;
     const err = $("login-error");
-    err.textContent = "Tu usuario existe pero no tiene perfil activo en el CRM. Pide acceso a la administración.";
+    err.textContent = "Ese acceso existe pero no tiene perfil activo en el panel. Habla con la administración.";
     err.hidden = false;
     await sb.auth.signOut();
     return;
