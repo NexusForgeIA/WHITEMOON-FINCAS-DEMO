@@ -5,8 +5,10 @@ donde el vecino cuenta su incidencia en chat libre, y un CRM privado donde el
 administrador lleva comunidades, proveedores, expedientes, presupuestos y
 facturación.
 
-- **Web y chat del vecino:** https://nexusforgeia.github.io/WHITEMOON-FINCAS-DEMO/
-- **CRM (acceso administrador):** https://nexusforgeia.github.io/WHITEMOON-FINCAS-DEMO/admin.html
+- **Web pública:** https://nexusforgeia.github.io/WHITEMOON-FINCAS-DEMO/
+- **Panel de gestión:** `/panel-wf.html` — **no está enlazado desde la web**, y
+  eso es deliberado: la web pública no menciona que exista. Se entra con una
+  clave, y la clave se comprueba en el servidor.
 
 > **Arranca vacío.** No hay datos de ejemplo. Cada sección del CRM tiene su
 > estado "aún no hay…" explicando qué hacer para empezar.
@@ -21,6 +23,7 @@ pero el circuito de correo se queda a medias — y lo dice, no lo disimula.
 
 | Qué | Dónde se pone | Estado | Sin ello |
 |---|---|---|---|
+| `FINCAS_PANEL_KEY` | Supabase → Edge Functions → Secrets | ⚠ opcional | Funciona sin él: se usa el hash de `fincas_panel_acceso`. Ponerlo es lo recomendable. |
 | `RESEND_API_KEY` | Supabase → Edge Functions → Secrets | ❌ pendiente | La petición al proveedor se registra en el timeline como `pendiente` y `fincas-enviar-email` devuelve 503. El expediente se abre igual. |
 | Dominio remitente | Secret `FINCAS_FROM_EMAIL` | ❌ por definir | Se usa `onboarding@resend.dev`, que **sólo entrega al email de la cuenta de Resend**. Para escribir a proveedores reales hace falta un dominio verificado en Resend (`Whitemoon Fincas <avisos@tu-dominio>`). |
 | Cloudflare Email Routing | Secrets `FINCAS_INBOUND_TOKEN` + `FINCAS_INBOUND_EMAIL`, y el Worker | ❌ pendiente | `fincas-inbound` responde 503 y rechaza todo. Los presupuestos por correo no entran en la bandeja. Ver `infra/cloudflare-email-worker.js`. |
@@ -180,6 +183,39 @@ le enseña al vecino sale de la base de datos.
 
 ## Seguridad
 
+### El acceso al panel
+
+Una sola clave, sin usuario. Lo que hace que esto no sea un adorno es dónde se
+comprueba:
+
+1. El navegador **no valida nada**: manda la clave a `fincas-panel-auth`.
+2. La función la compara contra el Secret `FINCAS_PANEL_KEY` —o, si no está
+   puesto, contra un hash bcrypt en `fincas_panel_acceso`, tabla con RLS, sin
+   políticas y con los permisos revocados a `anon` y `authenticated`—.
+3. Si encaja, crea una **sesión real de Supabase Auth** para `panel@whitemoon.es`
+   (con la API de administración: enlace mágico generado y canjeado en el propio
+   servidor, sin que salga de ahí) y devuelve los tokens.
+4. El panel opera con ese JWT, bajo RLS, exactamente igual que con un login
+   normal.
+
+Un gate de solo cliente no valdría: se salta abriendo las herramientas del
+navegador, y detrás hay IBAN y datos de propietarios. Sin clave válida no hay
+sesión, y sin sesión `anon` no lee una fila.
+
+La URL poco evidente **no es la protección**, es sólo higiene. La protección es
+la sesión.
+
+**Fuerza bruta:** se cuentan los fallos por origen y a partir de 8 en 15 minutos
+se cierra la puerta. Cada intento, acierte o falle, queda en `fincas_auditoria`.
+
+**Cambiar la clave:** lo recomendable es ponerla en Supabase → Edge Functions →
+Secrets como `FINCAS_PANEL_KEY`; en cuanto exista, tiene preferencia sobre el
+hash de la base. Para cambiar la de la base:
+`update fincas_panel_acceso set clave_hash = extensions.crypt('LA-NUEVA', extensions.gen_salt('bf'));`
+
+El login con email y contraseña sigue existiendo como vía interna, plegado
+detrás de un enlace en la propia pantalla de acceso. No se anuncia en la web.
+
 ### `anon` no lee nada del CRM
 
 RLS estricta: las tablas `fincas_*` no tienen ninguna policy para `anon`. La
@@ -275,7 +311,7 @@ expedientes, los presupuestos y la facturación son reales.
 
 ```
 index.html                  landing + chat libre del vecino
-admin.html                  login + CRM privado
+panel-wf.html               panel de gestión, sin enlazar desde la web
 assets/css/base.css         tokens WhiteMoon compartidos
 assets/css/landing.css      portada y chat
 assets/css/admin.css        CRM
@@ -304,6 +340,8 @@ supabase/functions/         Edge Functions
 | `fincas_facturas` | facturas y certificados: base, IVA, total, discrepancias y propuesta de pago |
 | `fincas_plantillas_email` | biblioteca de correos por trámite, con `{{variables}}` |
 | `fincas_config_autonomia` | umbral € y trámites de confianza, global o por comunidad |
+| `fincas_panel_acceso` | hash bcrypt de la clave del panel; RLS sin políticas |
+| `fincas_panel_intentos` | fallos por origen, para frenar la fuerza bruta |
 | `fincas_auditoria` | append-only; distingue persona, `agente-ia` y `servicio` |
 | `fincas_privado.datos_comunidad` | **IBAN y presidente — esquema no expuesto** |
 
@@ -316,6 +354,7 @@ supabase/functions/         Edge Functions
 | `fincas-inbound` | recibe la respuesta del proveedor | token compartido |
 | `fincas-notify` | avisos por Telegram | pública, no lee datos |
 | `fincas-contable` | el Contable IA: leer, cuadrar y cotejar facturas | JWT de staff |
+| `fincas-panel-auth` | valida la clave del panel y devuelve una sesión real | pública, con control de intentos |
 | `fincas-privado` | IBAN y presidente | JWT de staff, y sólo eso |
 | `fincas-presupuesto` | **retirada** — devuelve 410 | — |
 
@@ -323,7 +362,7 @@ supabase/functions/         Edge Functions
 
 ## Primeros pasos en el CRM
 
-1. Entrar en `admin.html`.
+1. Entrar en `/panel-wf.html` con la clave de acceso.
 2. **Comunidades** → dar de alta la finca (nombre y dirección).
 3. Abrir su ficha → rellenar **presidente e IBAN** (marcado como dato
    protegido) y subir los **estatutos en PDF**.

@@ -4,14 +4,15 @@
    Chat vacío y sin botones: el vecino escribe lo que quiera. No hay
    selector de comunidad ni frases sugeridas — es el agente quien pregunta.
 
-   Lo que este fichero pinta aparte del texto son datos que el modelo NO
-   escribe: el protocolo aplicado (con la comunidad y la sección del manual
-   de la que sale), el documento citado y la referencia del expediente.
-   Todo eso viaja en campos propios de la respuesta y viene de la base de
-   datos. Si el modelo se inventara un proveedor, la tarjeta lo desmentiría.
+   Aquí NO se pinta nada interno. La respuesta de la Edge Function trae
+   además el protocolo aplicado, el documento citado y la ficha del
+   expediente, pero eso es información de gestión y su sitio es el panel: en
+   la web pública el propietario ve la conversación y poco más. Si algún día
+   vuelve a hacer falta enseñar la referencia, ya viene dentro del texto que
+   escribe el asistente.
    ========================================================================= */
 
-import { FN, esc, limpiaTexto, ETIQUETA_URGENCIA, humaniza } from "./config.js";
+import { FN, esc, limpiaTexto } from "./config.js";
 
 const hilo = document.getElementById("hilo");
 const form = document.getElementById("form-chat");
@@ -26,67 +27,6 @@ function iniciar() {
   let historial = [];
   let contexto = { comunidad_id: null, inmueble_id: null };
   let enVuelo = false;
-
-  const cards = {
-    protocolo: document.getElementById("card-protocolo"),
-    normativa: document.getElementById("card-normativa"),
-    expediente: document.getElementById("card-expediente"),
-  };
-
-  function burbuja(quien, texto, clase) {
-    const div = document.createElement("div");
-    div.className = `burbuja ${clase}`;
-    div.innerHTML = quien
-      ? `<span class="quien">${esc(quien)}</span>${esc(texto)}`
-      : esc(texto);
-    hilo.appendChild(div);
-    hilo.scrollTop = hilo.scrollHeight;
-    return div;
-  }
-
-  function puntitos() {
-    const div = document.createElement("div");
-    div.className = "burbuja ia";
-    div.innerHTML =
-      '<span class="quien">Nora</span><span class="escribiendo"><i></i><i></i><i></i></span>';
-    hilo.appendChild(div);
-    hilo.scrollTop = hilo.scrollHeight;
-    return div;
-  }
-
-  function pintaProtocolo(p) {
-    const c = cards.protocolo;
-    if (!c || !p) return;
-    document.getElementById("prot-titulo").textContent =
-      `${humaniza(p.categoria)} · ${humaniza(p.subtipo)}`;
-    document.getElementById("prot-cita").textContent = p.cita_fuente ?? "";
-    document.getElementById("prot-comunidad").textContent = p.comunidad ?? "—";
-    document.getElementById("prot-proveedor").textContent = p.proveedor_nombre ?? "—";
-    document.getElementById("prot-urgencia").textContent =
-      ETIQUETA_URGENCIA[p.urgencia_default] ?? humaniza(p.urgencia_default);
-    c.hidden = false;
-  }
-
-  function pintaNormativa(d) {
-    const c = cards.normativa;
-    if (!c || !d) return;
-    document.getElementById("norm-titulo").textContent = d.titulo ?? "";
-    // El extracto viene de ts_headline, que marca los términos con <b>. Se
-    // pinta como texto: aquí no entra HTML de la base.
-    document.getElementById("norm-extracto").textContent =
-      String(d.extracto ?? "").replace(/<\/?b>/g, "");
-    c.hidden = false;
-  }
-
-  function pintaExpediente(e) {
-    const c = cards.expediente;
-    if (!c || !e?.ref) return;
-    document.getElementById("exp-ref").textContent = e.ref;
-    document.getElementById("exp-detalle").textContent =
-      [e.comunidad, e.puerta, humaniza(e.subtipo), e.proveedor_nombre]
-        .filter(Boolean).join(" · ");
-    c.hidden = false;
-  }
 
   async function envia(texto) {
     if (enVuelo || !texto.trim()) return;
@@ -112,22 +52,17 @@ function iniciar() {
 
       esperando.remove();
       const reply = limpiaTexto(data.reply);
-      burbuja("Nora", reply, "ia");
+      burbuja("Asistente", reply, "ia");
       historial.push({ role: "assistant", content: reply });
 
       if (data.contexto) contexto = data.contexto;
-      if (data.protocolo) pintaProtocolo(data.protocolo);
-      if (data.normativa) pintaNormativa(data.normativa);
-      if (data.expediente) pintaExpediente(data.expediente);
       if (data.escalado) {
-        burbuja("", data.escalado.ref
-          ? `Escalado al equipo · ${data.escalado.ref}`
-          : "Escalado al equipo de administración.", "sistema");
+        burbuja("", "Lo hemos pasado al equipo de administración.", "sistema");
       }
     } catch (e) {
       console.warn("[chat] fallo:", e);
       esperando.remove();
-      burbuja("Nora",
+      burbuja("Asistente",
         "No he podido conectar con la administración. Inténtalo otra vez en un momento.",
         "ia");
     } finally {
@@ -142,7 +77,7 @@ function iniciar() {
     envia(entrada.value);
   });
 
-  burbuja("Nora",
-    "Hola, soy Nora, de Whitemoon Fincas. Cuéntame qué ha pasado y te ayudo.",
+  burbuja("Asistente",
+    "Hola, soy el asistente de Whitemoon Fincas. Cuéntame qué ha pasado y te ayudo.",
     "ia");
 }
