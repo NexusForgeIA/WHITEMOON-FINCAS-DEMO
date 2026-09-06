@@ -336,6 +336,7 @@ assets/js/admin.js          CRM completo
 infra/                      Worker de Cloudflare Email Routing
 supabase/migrations/        esquema, RLS, funciones
 supabase/functions/         Edge Functions
+supabase/seeds/             seeds de carga inicial por comunidad
 ```
 
 ### Tablas (proyecto `mlaqtniujnvfxcvcourm`)

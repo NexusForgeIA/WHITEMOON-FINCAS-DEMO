@@ -30,7 +30,7 @@ begin
   limit 1;
 
   if v_cid is null then
-    raise exception 'No encuentro la comunidad "%%". Da de alta la comunidad primero o corrige el nombre.', v_nombre_comunidad;
+    raise exception 'No encuentro la comunidad "%". Da de alta la comunidad primero o corrige el nombre.', v_nombre_comunidad;
   end if;
 
   -- ------------------------------------------------------------------
