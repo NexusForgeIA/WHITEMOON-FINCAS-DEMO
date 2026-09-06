@@ -378,13 +378,16 @@ supabase/functions/         Edge Functions
 
 1. Entrar en `/panel-wf.html` con la clave de acceso.
 2. **Comunidades** → dar de alta la finca (nombre y dirección).
-3. Abrir su ficha → rellenar **presidente e IBAN** (marcado como dato
+3. **Carga inicial del catálogo**: editar y ejecutar
+   `supabase/seeds/fincas_catalogo_estandar.sql` tras dar de alta la
+   comunidad.
+4. Abrir su ficha → rellenar **presidente e IBAN** (marcado como dato
    protegido) y subir los **estatutos en PDF**.
-4. **Proveedores** → alta con **email**, que es lo que permite pedirle
+5. **Proveedores** → alta con **email**, que es lo que permite pedirle
    presupuesto.
-5. Volver a la ficha de la comunidad → **añadir protocolos** (categoría,
+6. Volver a la ficha de la comunidad → **añadir protocolos** (categoría,
    subtipo, proveedor, urgencia, pasos y la cita del manual).
-6. Probar el chat de la web como si fueras un vecino.
+7. Probar el chat de la web como si fueras un vecino.
 
 ---
 
