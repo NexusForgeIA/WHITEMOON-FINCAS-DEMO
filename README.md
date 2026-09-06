@@ -25,6 +25,26 @@ pero el circuito de correo se queda a medias — y lo dice, no lo disimula.
 | Dominio remitente | Secret `FINCAS_FROM_EMAIL` | ❌ por definir | Se usa `onboarding@resend.dev`, que **sólo entrega al email de la cuenta de Resend**. Para escribir a proveedores reales hace falta un dominio verificado en Resend (`Whitemoon Fincas <avisos@tu-dominio>`). |
 | Cloudflare Email Routing | Secrets `FINCAS_INBOUND_TOKEN` + `FINCAS_INBOUND_EMAIL`, y el Worker | ❌ pendiente | `fincas-inbound` responde 503 y rechaza todo. Los presupuestos por correo no entran en la bandeja. Ver `infra/cloudflare-email-worker.js`. |
 
+> ### ⚠ El correo ENTRANTE está validado por simulación, no con recepción real
+>
+> Conviene decirlo con todas las letras antes de enseñárselo a nadie: del
+> circuito de entrada está probado que **la puerta cierra** (`fincas-inbound`
+> devuelve 503 sin `FINCAS_INBOUND_TOKEN` y 401 con un token que no cuadra) y
+> que **la bandeja y la cola de aprobación funcionan** — pero eso último se
+> comprobó insertando a mano la fila que la función habría creado, no
+> recibiendo un correo de verdad.
+>
+> Lo que **no** está probado con un mensaje real: el parseo del MIME en el
+> Worker de Cloudflare, el enganche al expediente por la referencia del
+> asunto, y la subida del PDF adjunto a Storage. Eso sólo se puede verificar
+> con el dominio enrutado; hasta entonces es código escrito y desplegado, no
+> código ejercitado.
+>
+> **Cómo comprobarlo cuando esté enchufado:** abre un expediente desde el
+> chat, responde al correo desde la cuenta del proveedor sin tocar el asunto,
+> y mira que aparezca en la bandeja ligado a su `EXP-AAAA-NNNN`, con el PDF
+> descargable desde la ficha.
+
 Ya configurado y funcionando: `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`,
 `TELEGRAM_CHAT_ID`.
 
@@ -111,9 +131,15 @@ El equipo entra con Supabase Auth y necesita además **fila activa en
 
 Tres cerraduras, no una:
 
-1. **Otro esquema.** `fincas_privado.datos_comunidad` no está en los esquemas
-   que expone PostgREST. No hay URL de la API que lo devuelva, ni con la clave
-   anon ni con service role.
+1. **Otro esquema, y encima con RLS.** `fincas_privado.datos_comunidad` no
+   está en los esquemas que expone PostgREST: no hay URL de la API que lo
+   devuelva, ni con la clave anon ni con service role. Y por si algún día
+   alguien añadiera el esquema a la lista expuesta, la tabla lleva **RLS
+   activada sin ninguna política** — que en Postgres significa denegar a
+   todos. Los únicos que siguen entrando son los que tienen `BYPASSRLS`
+   (`service_role`) y el propietario, que es quien ejecuta las dos funciones
+   `SECURITY DEFINER`. El camino no cambia; sólo se le ha puesto otra
+   cerradura por debajo.
 2. **Sin herramienta.** El agente no tiene ninguna tool que lea ni escriba
    datos bancarios. Su catálogo completo es: `buscar_comunidad`,
    `buscar_inmueble`, `buscar_protocolo`, `consultar_normativa`,
@@ -132,6 +158,20 @@ consulta** en la auditoría (sin guardar nunca el valor).
 `fincas_auditoria` la escriben triggers de la propia base, no el cliente.
 `UPDATE`, `DELETE` **y `TRUNCATE`** están bloqueados por trigger — falla
 incluso con service role.
+
+Cada apunte dice **quién**, y distingue tres cosas distintas:
+
+| Actor | Qué significa |
+|---|---|
+| `admin@…` (un email) | una persona del equipo, identificada por su perfil |
+| `agente-ia` | la IA: lo abrió o lo movió el agente del chat |
+| `servicio` | un proceso backend que no es la IA (por ejemplo, el correo entrante) |
+
+El agente se identifica mandando la cabecera `x-fincas-actor: agente-ia` en
+cada escritura; PostgREST la publica en el GUC `request.headers` y
+`fincas_actor()` la lee. Sólo se mira cuando no hay persona detrás, y sólo se
+acepta ese valor exacto: nadie puede firmar la auditoría con un nombre
+inventado.
 
 ### Nada se emite solo
 
@@ -181,7 +221,7 @@ supabase/functions/         Edge Functions
 | `fincas_comunicaciones` | timeline de correos enviados y recibidos |
 | `fincas_presupuestos` | bandeja + cola de aprobación |
 | `fincas_facturas` | facturas y certificados de deuda, en borrador |
-| `fincas_auditoria` | append-only |
+| `fincas_auditoria` | append-only; distingue persona, `agente-ia` y `servicio` |
 | `fincas_privado.datos_comunidad` | **IBAN y presidente — esquema no expuesto** |
 
 ### Edge Functions
