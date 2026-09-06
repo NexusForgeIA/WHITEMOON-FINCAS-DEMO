@@ -1,11 +1,11 @@
 /* =========================================================================
-   config.js — configuración y utilidades comunes de la demo
+   config.js — configuración y utilidades comunes
    =========================================================================
-   La clave anon es pública por diseño: con RLS activo sólo puede hacer
-   SELECT sobre las tablas fincas_*, que contienen datos ficticios de
-   demostración. NINGUNA escritura pasa por aquí: los expedientes los crea
-   fincas-chat y las decisiones sobre presupuestos las escribe
-   fincas-presupuesto, ambas con service role en el servidor.
+   La clave anon es pública por diseño, pero desde el MVP ya NO abre nada:
+   la RLS es estricta y anon no tiene ninguna policy sobre las tablas
+   fincas_*. Sirve para dos cosas: identificar el proyecto ante la API y
+   permitir el login del administrador. Todo lo que se lee del CRM se lee
+   con el JWT de ese administrador.
    ========================================================================= */
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/+esm";
@@ -18,13 +18,14 @@ export const SUPABASE_ANON =
 
 export const FN = (nombre) => `${SUPABASE_URL}/functions/v1/${nombre}`;
 
+/** Cliente con sesión persistente: el admin no quiere volver a entrar al
+    recargar. En la landing no se usa la sesión para nada. */
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON, {
-  auth: { persistSession: false },
+  auth: { persistSession: true, autoRefreshToken: true },
 });
 
 /* ------------------------------------------------------------ utilidades */
 
-/** Escapa antes de meter cualquier dato en innerHTML. */
 export function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -32,7 +33,7 @@ export function esc(v) {
 }
 
 /** El modelo se escapa a veces a las negritas de markdown; aquí se hablan
-    frases, no se pintan formatos, así que se quitan. */
+    frases, no se pintan formatos. */
 export function limpiaTexto(t) {
   return String(t ?? "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/\*/g, "").trim();
 }
@@ -44,27 +45,28 @@ export const EUR = new Intl.NumberFormat("es-ES", {
 export const ETIQUETA_URGENCIA = {
   critica: "Crítica", alta: "Alta", media: "Media", baja: "Baja",
 };
-
 export const ETIQUETA_ESTADO = {
   nuevo: "Nuevo", asignado: "Asignado", en_curso: "En curso", cerrado: "Cerrado",
 };
 
 /* Las categorías y subtipos se guardan como slugs ASCII para que el modelo
    los escriba sin fallar y para que el tsvector no dependa de tildes. Al
-   pintarlos hay que devolverles el castellano: "Fontaneria" y "Apagon" en la
-   pantalla de una demo comercial cantan. */
+   pintarlos hay que devolverles el castellano. */
 const ETIQUETA_SLUG = {
-  ascensores:           "Ascensores",
-  fontaneria:           "Fontanería",
-  electricidad:         "Electricidad",
-  parado:               "Parado",
-  atrapamiento:         "Atrapamiento",
-  fuga_zonas_comunes:   "Fuga en zonas comunes",
+  ascensores: "Ascensores",
+  fontaneria: "Fontanería",
+  electricidad: "Electricidad",
+  limpieza: "Limpieza",
+  cerrajeria: "Cerrajería",
+  jardineria: "Jardinería",
+  consulta: "Consulta",
+  parado: "Parado",
+  atrapamiento: "Atrapamiento",
+  sin_protocolo: "Sin protocolo",
+  fuga_zonas_comunes: "Fuga en zonas comunes",
   apagon_zonas_comunes: "Apagón en zonas comunes",
 };
 
-/** "fuga_zonas_comunes" → "Fuga en zonas comunes". Los slugs desconocidos
-    caen en el genérico: guiones bajos fuera y primera letra en mayúscula. */
 export function humaniza(s) {
   const clave = String(s ?? "").trim();
   if (ETIQUETA_SLUG[clave]) return ETIQUETA_SLUG[clave];
@@ -72,9 +74,10 @@ export function humaniza(s) {
   return t ? t[0].toUpperCase() + t.slice(1) : "";
 }
 
-export function fecha(iso) {
+export function fecha(iso, conHora = true) {
   if (!iso) return "";
-  return new Date(iso).toLocaleString("es-ES", {
-    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
-  });
+  const opts = conHora
+    ? { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }
+    : { day: "2-digit", month: "2-digit", year: "numeric" };
+  return new Date(iso).toLocaleString("es-ES", opts);
 }

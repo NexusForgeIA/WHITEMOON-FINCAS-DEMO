@@ -1,60 +1,41 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 /* =========================================================================
-   fincas-chat — Nora, la agente IA de la demo de administración de fincas
+   fincas-chat — Nora, la agente de Whitemoon Fincas
    =========================================================================
-   Nora CONVERSA y CLASIFICA. Nora NO DECIDE el proveedor.
+   Atiende al vecino en chat libre. No hay selector de comunidad, ni
+   botones, ni respuestas preparadas: Nora tiene que averiguar de qué
+   comunidad le hablan preguntando, como haría una persona en la centralita.
 
-   El proveedor, la urgencia y los pasos NO salen del modelo: salen de
-   fincas_protocolos, la tabla de protocolos de CADA comunidad. El modelo
-   (claude-haiku-4-5-20251001) entiende lo que escribe el vecino, identifica
-   la comunidad y el caso, y llama a la herramienta. Lo que devuelve la
-   herramienta es lo que manda.
+   QUÉ DECIDE EL MODELO Y QUÉ NO
+   El modelo (claude-haiku-4-5-20251001) entiende, pregunta y clasifica.
+   El proveedor, la urgencia, los pasos y la cita salen de
+   fincas_protocolos y fincas_documentos, siempre filtrados por la comunidad
+   identificada. Si no hay protocolo, NO improvisa: escala a administración.
 
-   AQUÍ NO HAY EMBEDDINGS. El "RAG" de protocolos son dos cosas:
-     1. datos ESTRUCTURADOS por comunidad (categoría + subtipo), y
-     2. búsqueda de texto de Postgres (tsvector español) para las dudas
-        libres, cuando el vecino no usa la palabra exacta.
+   RAG SIN EMBEDDINGS
+     1. protocolos ESTRUCTURADOS por comunidad (categoría + subtipo), y
+     2. búsqueda de texto de Postgres (tsvector español) sobre esos
+        protocolos y sobre la normativa que el administrador haya subido.
 
-   EL AISLAMIENTO ENTRE COMUNIDADES
-   --------------------------------
-   Es la propiedad que vende esta demo, así que no se confía en el prompt.
-   Se sostiene sobre tres cosas, en este orden:
-
-     a) fincas_buscar_protocolo(p_comunidad, p_consulta) lleva el filtro
-        `where comunidad_id = p_comunidad` CABLEADO en SQL. Si p_comunidad
-        es nulo, la comparación es nula y devuelve 0 filas: falla cerrada.
-        No existe forma de pedir "todos los protocolos".
-
-     b) Esta función mantiene una `comunidadActiva` de servidor. La
-        herramienta buscar_protocolo declara `comunidad_id` en su esquema
-        (el modelo lo ve y lo rellena), pero antes de tocar la base se
-        COMPARA con la comunidad activa y, si no coincide, se rechaza la
-        llamada y se le devuelve el error al modelo. Que el modelo se
-        equivoque de comunidad es un error recuperable, no una fuga.
-
-     c) La comunidad activa sólo se fija de dos maneras: el selector de la
-        web, o resolver un inmueble real con buscar_inmueble. Nunca por
-        deducción del modelo.
+   LOS DATOS BANCARIOS NO ESTÁN A SU ALCANCE
+   Tres cosas, no una:
+     a) IBAN y presidente viven en el esquema `fincas_privado`, que
+        PostgREST no expone. No hay URL que los devuelva.
+     b) Nora no tiene ninguna herramienta que los mencione.
+     c) El cliente de base de datos de ESTA función lleva una LISTA BLANCA
+        (TABLAS_PERMITIDAS / RPC_PERMITIDAS). Cualquier ruta que no esté en
+        ella se rechaza antes de salir a la red, aunque el código futuro se
+        despiste. Los presupuestos y las facturas tampoco están: el agente
+        no adjudica ni factura.
 
    Contrato HTTP
    -------------
-   POST  { mensaje: string,
-           comunidad_id?: uuid,                       // selector de la web
-           contexto?: { comunidad_id, inmueble_id },  // eco del turno anterior
-           historial?: [{ role, content }] }
-
-   200   { reply, contexto, protocolo, expediente, aviso }
-
-   `protocolo`   el protocolo aplicado en este turno, tal cual sale de la BD.
-   `expediente`  { ref, id, ... } si en este turno se ha abierto uno.
-   `aviso`       payload listo para fincas-notify, si se ha dado parte al
-                 proveedor. Lo dispara el cliente (assets/js/chat.js).
+   POST { mensaje, contexto?: {comunidad_id, inmueble_id}, historial? }
+   200  { reply, contexto, protocolo, normativa, expediente, escalado }
 
    Secrets: ANTHROPIC_API_KEY. SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY las
    inyecta la plataforma.
-
-   verify_jwt: false — la llama un navegador anónimo desde GitHub Pages.
    ========================================================================= */
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
@@ -63,8 +44,8 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const MODELO = "claude-haiku-4-5-20251001";
 const MAX_TOKENS = 1200;
-const MAX_HISTORIAL = 14;
-const MAX_VUELTAS = 5;
+const MAX_HISTORIAL = 16;
+const MAX_VUELTAS = 6;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -73,107 +54,175 @@ const CORS = {
 };
 
 const CAIDA =
-  "Ahora mismo no puedo seguir la conversación. Llama a la administración " +
-  "o escríbenos por WhatsApp al 643 199 580 y te atendemos.";
+  "Ahora mismo no puedo seguir la conversación. Vuelve a intentarlo en un " +
+  "momento o escribe a la administración.";
 
-const SYSTEM = `Eres Nora, la agente de IA de una administración de fincas. Atiendes a propietarios y vecinos. Esto es una DEMO de WhiteMoon Agencia IA.
+/* ------------------------------------------------- la lista blanca real */
 
-REGLA NÚMERO UNO: LA COMUNIDAD PRIMERO
-- Antes de aplicar NINGÚN protocolo tienes que saber de qué comunidad se trata.
-- Cada comunidad tiene sus propios proveedores y su propio protocolo. Lo que vale en una NO vale en la otra.
-- MIRA SIEMPRE el bloque CONTEXTO que va al final de estas instrucciones. Si ahí aparece una comunidad activa, YA LA SABES: no la preguntes nunca, úsala tal cual y sigue directamente con la incidencia.
-- Sólo si el CONTEXTO dice que todavía no la sabes, pregúntala. Si te dicen la puerta ("el 3C de Madrid 2"), llama a buscar_inmueble para resolverla.
-- Nunca supongas la comunidad por el tipo de avería, por el nombre del vecino ni por lo que recuerdes de otra conversación.
+const TABLAS_PERMITIDAS = new Set([
+  "fincas_comunidades",
+  "fincas_inmuebles",
+  "fincas_protocolos",
+  "fincas_expedientes",
+  "fincas_comunicaciones",
+  "fincas_auditoria",
+]);
+
+const RPC_PERMITIDAS = new Set([
+  "fincas_buscar_comunidad",
+  "fincas_buscar_protocolo",
+  "fincas_buscar_normativa",
+]);
+
+const SYSTEM = `Eres Nora, la agente de IA de Whitemoon Fincas, una administración de fincas. Atiendes por chat a vecinos y propietarios.
+
+LO PRIMERO: DE QUÉ COMUNIDAD ME HABLAS
+- No hay ningún selector. No sabes desde dónde escriben hasta que lo averiguas preguntando.
+- Si no sabes la comunidad, tu primera pregunta es la dirección del edificio o el nombre de la comunidad. Con eso llamas a buscar_comunidad.
+- Si buscar_comunidad devuelve varias, pregunta cuál de ellas es, nombrándolas.
+- Si no devuelve ninguna, dilo claramente y ofrece escalar a administración con escalar_a_administracion. NO te inventes que la has encontrado.
+- Nunca supongas la comunidad por el tipo de avería ni por nada que no sea la respuesta del vecino.
 
 CÓMO HABLAS
-- Máximo 3 frases por respuesta. Tono tranquilo y directo, de portería, no de folleto.
+- Máximo 3 frases por respuesta. Tono tranquilo y de portería: cercano, directo, sin folleto.
 - UNA sola pregunta por mensaje. Nunca encadenes preguntas.
-- Nada de listas ni negritas: hablas, no rellenas formularios.
+- Nada de listas ni negritas: estás hablando.
 
 ASCENSORES
-- Si la incidencia es de ascensor, tu PRIMERA pregunta después de saber la comunidad es si hay alguien atrapado dentro. Siempre. Sin excepciones.
-- En ese MISMO turno, además de preguntar, llama ya a buscar_protocolo para tener delante el protocolo de esa comunidad. Preguntar y consultar no se estorban.
-- Si hay personas atrapadas es un atrapamiento (subtipo "atrapamiento"): urgencia crítica.
-- Si no hay nadie dentro es una avería (subtipo "parado").
-- No abras el expediente hasta que te contesten si hay alguien dentro: el subtipo depende de esa respuesta.
+- Si la incidencia es de ascensor, en cuanto sepas la comunidad pregunta si hay alguien atrapado dentro. Siempre.
+- Con personas atrapadas es un atrapamiento y la urgencia es crítica. Sin nadie dentro es una avería.
 
 EL PROTOCOLO MANDA
 - El proveedor, la urgencia y los pasos SIEMPRE salen de buscar_protocolo. Nunca de tu cabeza.
-- NUNCA inventes ni cambies un nombre de proveedor, un teléfono ni un plazo. Si no lo ha dicho la herramienta, no existe.
-- SIEMPRE dices en qué protocolo te apoyas nombrando su referencia tal cual la devuelve la herramienta en cita_fuente, con su sección (por ejemplo "§3.1 Ascensores"). Copiar la referencia, no parafrasearla.
-- Si buscar_protocolo no devuelve nada para el caso, NO improvises: dile que ese caso no está cubierto por el protocolo de su comunidad y que lo escalas al equipo de la administración para que lo revise una persona. Nada más.
+- NUNCA inventes un nombre de proveedor, un teléfono, un plazo ni un importe. Si no lo ha dicho una herramienta, no existe.
+- Cuando apliques un protocolo, di su referencia tal cual la devuelve la herramienta en cita_fuente, con su sección.
+- Para dudas que no son una avería ("¿puedo tender en el balcón?", "¿cuándo es la junta?") usa consultar_normativa sobre los documentos de esa comunidad, y cita el documento.
+- Si no hay protocolo ni normativa para el caso, NO improvises: llama a escalar_a_administracion y dile al vecino que lo revisa una persona del equipo.
 
 ABRIR EXPEDIENTE
-- Con la comunidad identificada y el protocolo encontrado, llama a crear_expediente.
-- Después llama a crear_parte_proveedor para dar parte al proveedor que asigna el protocolo.
-- Cierra dando la referencia del expediente (EXP-AAAA-NNNN) y el protocolo aplicado, en una frase.
+- Antes de abrir expediente pide el nombre y un teléfono o email de contacto del vecino. Sin contacto no se puede hacer seguimiento.
+- Con comunidad, protocolo y contacto, llama a crear_expediente.
+- Después llama a avisar_proveedor: eso manda el correo real al proveedor que asigna el protocolo.
+- Cierra dando la referencia del expediente y diciendo a quién se ha avisado.
 
-LO QUE ESTÁ SIMULADO
-- El aviso al proveedor y la sincronización con NetFincas están SIMULADOS en esta demo. Si te preguntan, lo dices sin rodeos.
-- No des importes, ni presupuestos, ni fechas de reparación: eso lo confirma el administrador.`;
+LO QUE NO HACES
+- No das importes, ni presupuestos, ni fechas de reparación: los confirma la administración.
+- No tienes acceso a datos bancarios, IBAN ni datos del presidente de la comunidad. Si te los piden, di que esos datos los lleva la administración y que tú no los ves.
+- No apruebas gastos ni emites facturas.
+
+INTEGRACIONES
+- La sincronización con NetFincas está SIMULADA en esta versión. Si te preguntan, lo dices sin rodeos. El correo al proveedor, en cambio, es real.`;
 
 const HERRAMIENTAS = [
   {
-    name: "buscar_inmueble",
+    name: "buscar_comunidad",
     description:
-      "Resuelve una comunidad y, si se indica, un inmueble concreto. Úsala en cuanto sepas " +
-      "de qué comunidad habla el vecino. Acepta el nombre de la comunidad tal cual lo diga " +
-      "('Madrid 2') y opcionalmente la puerta ('3C'). Fija la comunidad activa de la conversación.",
+      "Busca la comunidad por lo que diga el vecino: nombre o dirección ('Serrano 118', " +
+      "'la de Brasil'). Devuelve como mucho 5 candidatas. Úsala en cuanto tengas algo " +
+      "que buscar. Si devuelve lista vacía, esa comunidad no está dada de alta.",
     input_schema: {
       type: "object",
       properties: {
-        comunidad: { type: "string", description: "Nombre de la comunidad tal como lo ha dicho la persona." },
-        puerta: { type: "string", description: "Puerta o vivienda, por ejemplo '3C'. Cadena vacía si no la ha dicho." },
+        texto: { type: "string", description: "Nombre o dirección tal como lo ha escrito la persona." },
       },
-      required: ["comunidad"],
+      required: ["texto"],
+    },
+  },
+  {
+    name: "buscar_inmueble",
+    description:
+      "Localiza la vivienda dentro de la comunidad ya identificada, por su puerta ('3C'). " +
+      "Opcional: el expediente se puede abrir sin inmueble.",
+    input_schema: {
+      type: "object",
+      properties: {
+        comunidad_id: { type: "string", description: "Comunidad ya identificada." },
+        puerta: { type: "string", description: "Puerta o vivienda, por ejemplo '3C'." },
+      },
+      required: ["comunidad_id", "puerta"],
     },
   },
   {
     name: "buscar_protocolo",
     description:
       "Devuelve el protocolo de ESA comunidad para el caso descrito: proveedor asignado, " +
-      "urgencia, pasos y cita de la fuente. Sólo consulta la comunidad activa. " +
-      "Pasa categoria y subtipo si los tienes claros; si no, pasa la frase del vecino en consulta " +
-      "y se busca por texto. Si devuelve lista vacía, ese caso NO está cubierto: escala al equipo.",
+      "urgencia, pasos y cita de la fuente. Pasa categoria y subtipo si los tienes claros; " +
+      "si no, pasa la frase del vecino en consulta. Lista vacía = no está cubierto.",
     input_schema: {
       type: "object",
       properties: {
-        comunidad_id: { type: "string", description: "Identificador de la comunidad activa." },
-        categoria: { type: "string", description: "ascensores, fontaneria, electricidad… Cadena vacía si no lo tienes claro." },
-        subtipo: { type: "string", description: "parado, atrapamiento, fuga_zonas_comunes… Cadena vacía si no lo tienes claro." },
-        consulta: { type: "string", description: "La frase del vecino, para buscar por texto cuando no sabes la categoría." },
+        comunidad_id: { type: "string", description: "Comunidad ya identificada." },
+        categoria: { type: "string", description: "ascensores, fontaneria, electricidad… Vacío si no lo tienes claro." },
+        subtipo: { type: "string", description: "parado, atrapamiento, fuga… Vacío si no lo tienes claro." },
+        consulta: { type: "string", description: "La frase del vecino, para buscar por texto." },
       },
       required: ["comunidad_id"],
     },
   },
   {
-    name: "crear_expediente",
+    name: "consultar_normativa",
     description:
-      "Abre el expediente en el CRM y devuelve su referencia EXP-AAAA-NNNN. " +
-      "Llámala sólo cuando tengas comunidad identificada y protocolo encontrado.",
+      "Busca en los documentos y la normativa que la administración ha subido para ESA " +
+      "comunidad (estatutos, actas, reglamento). Para dudas que no son una avería. " +
+      "Devuelve extractos con el título del documento para poder citarlo.",
     input_schema: {
       type: "object",
       properties: {
-        comunidad_id: { type: "string", description: "Comunidad activa." },
-        protocolo_id: { type: "string", description: "Id del protocolo devuelto por buscar_protocolo." },
-        inmueble_id: { type: "string", description: "Id del inmueble si se ha resuelto. Cadena vacía si no." },
-        descripcion: { type: "string", description: "Qué ha contado el vecino, en una o dos frases." },
-        urgencia: { type: "string", description: "critica, alta, media o baja. Si dudas, deja vacío y manda la del protocolo." },
+        comunidad_id: { type: "string", description: "Comunidad ya identificada." },
+        consulta: { type: "string", description: "La duda del vecino, en sus palabras." },
       },
-      required: ["comunidad_id", "protocolo_id", "descripcion"],
+      required: ["comunidad_id", "consulta"],
     },
   },
   {
-    name: "crear_parte_proveedor",
+    name: "crear_expediente",
     description:
-      "Da parte al proveedor que ASIGNA EL PROTOCOLO del expediente (no eliges tú a quién se avisa) " +
-      "y pasa el expediente a estado asignado.",
+      "Abre el expediente y devuelve su referencia EXP-AAAA-NNNN. Requiere comunidad, " +
+      "protocolo encontrado y datos de contacto del vecino.",
     input_schema: {
       type: "object",
       properties: {
-        expediente_id: { type: "string", description: "Id del expediente devuelto por crear_expediente." },
+        comunidad_id: { type: "string" },
+        protocolo_id: { type: "string", description: "Id del protocolo devuelto por buscar_protocolo." },
+        inmueble_id: { type: "string", description: "Id del inmueble si se ha localizado. Vacío si no." },
+        descripcion: { type: "string", description: "Qué ha contado el vecino, en una o dos frases." },
+        urgencia: { type: "string", description: "critica, alta, media o baja. Vacío para usar la del protocolo." },
+        solicitante_nombre: { type: "string" },
+        solicitante_tel: { type: "string", description: "Vacío si no lo ha dado." },
+        solicitante_email: { type: "string", description: "Vacío si no lo ha dado." },
       },
+      required: ["comunidad_id", "protocolo_id", "descripcion", "solicitante_nombre"],
+    },
+  },
+  {
+    name: "avisar_proveedor",
+    description:
+      "Manda por correo electrónico la petición de presupuesto al proveedor que ASIGNA EL " +
+      "PROTOCOLO del expediente (no eliges tú a quién). El envío es real. Deja el expediente " +
+      "en estado asignado y anota el correo en el historial del expediente.",
+    input_schema: {
+      type: "object",
+      properties: { expediente_id: { type: "string" } },
       required: ["expediente_id"],
+    },
+  },
+  {
+    name: "escalar_a_administracion",
+    description:
+      "Para cuando NO hay protocolo, no encuentras la comunidad, o el caso se sale de lo " +
+      "que puedes resolver. Abre un expediente sin proveedor para que lo mire una persona " +
+      "y avisa al equipo. Úsala en vez de improvisar.",
+    input_schema: {
+      type: "object",
+      properties: {
+        comunidad_id: { type: "string", description: "Si la conoces. Vacío si no se ha podido identificar." },
+        motivo: { type: "string", description: "Por qué lo escalas, en pocas palabras." },
+        descripcion: { type: "string", description: "Lo que ha contado el vecino." },
+        solicitante_nombre: { type: "string" },
+        solicitante_tel: { type: "string" },
+        solicitante_email: { type: "string" },
+      },
+      required: ["motivo", "descripcion"],
     },
   },
 ];
@@ -183,9 +232,27 @@ const HERRAMIENTAS = [
 type Bloque = { type: string; [k: string]: unknown };
 type Mensaje = { role: "user" | "assistant"; content: unknown };
 
-/* -------------------------------------------------------------- PostgREST */
+/* ----------------------------------------- cliente de base con lista blanca */
+
+/**
+ * Todo el acceso a datos del agente pasa por aquí, y aquí se comprueba que
+ * la ruta esté permitida ANTES de salir a la red. No es decoración: es la
+ * tercera cerradura sobre los datos bancarios, y de paso impide que el
+ * agente escriba en presupuestos o facturas.
+ */
+function rutaPermitida(path: string): boolean {
+  const limpio = path.replace(/^\/+/, "");
+  if (limpio.startsWith("rpc/")) {
+    return RPC_PERMITIDAS.has(limpio.slice(4).split("?")[0]);
+  }
+  return TABLAS_PERMITIDAS.has(limpio.split("?")[0]);
+}
 
 async function db(path: string, init: RequestInit = {}): Promise<any> {
+  if (!rutaPermitida(path)) {
+    console.warn("[fincas-chat] ruta BLOQUEADA por la lista blanca:", path);
+    return null;
+  }
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...init,
     headers: {
@@ -200,11 +267,10 @@ async function db(path: string, init: RequestInit = {}): Promise<any> {
     console.warn("[fincas-chat] PostgREST", path, r.status, await r.text());
     return null;
   }
-  const txt = await r.text();
-  return txt ? JSON.parse(txt) : null;
+  const txtRes = await r.text();
+  return txtRes ? JSON.parse(txtRes) : null;
 }
 
-/** Registra en la auditoría. Nunca rompe el flujo si falla. */
 async function auditar(accion: string, entidad: string, detalle: unknown) {
   try {
     await db("fincas_auditoria", {
@@ -217,6 +283,15 @@ async function auditar(accion: string, entidad: string, detalle: unknown) {
   }
 }
 
+/** Aviso interno por Telegram. Nunca interrumpe la conversación. */
+function avisarEquipo(payload: Record<string, unknown>) {
+  fetch(`${SUPABASE_URL}/functions/v1/fincas-notify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch((e) => console.warn("[fincas-chat] no se pudo avisar al equipo:", e));
+}
+
 /* ---------------------------------------------------------------- helpers */
 
 function saneaHistorial(bruto: unknown): Mensaje[] {
@@ -224,10 +299,10 @@ function saneaHistorial(bruto: unknown): Mensaje[] {
   const limpios: Mensaje[] = [];
   for (const m of lista) {
     const rol = (m as { role?: unknown })?.role;
-    const txt = (m as { content?: unknown })?.content;
+    const contenido = (m as { content?: unknown })?.content;
     if (rol !== "user" && rol !== "assistant") continue;
-    if (typeof txt !== "string") continue;
-    const t = txt.trim().slice(0, 2000);
+    if (typeof contenido !== "string") continue;
+    const t = contenido.trim().slice(0, 2000);
     if (!t) continue;
     limpios.push({ role: rol, content: t });
   }
@@ -247,24 +322,8 @@ function textoDe(bloques: unknown): string {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const esUuid = (v: unknown): v is string => typeof v === "string" && UUID_RE.test(v);
-
 const URGENCIAS = ["critica", "alta", "media", "baja"];
-
-/**
- * respuestaDeRespaldo — qué decir cuando el modelo no ha dejado texto.
- * Se construye con los datos REALES del turno, no con una disculpa genérica.
- */
-function respuestaDeRespaldo(exp: any, prot: any): string {
-  if (exp?.ref) {
-    return `He abierto el expediente ${exp.ref} y he dado parte a ` +
-      `${exp.proveedor_nombre ?? "el proveedor asignado"}, según ${exp.protocolo_citado ?? "el protocolo de tu comunidad"}.`;
-  }
-  if (prot?.cita_fuente) {
-    return `Según ${prot.cita_fuente}, en tu comunidad este caso lo atiende ` +
-      `${prot.proveedor_nombre}. Cuéntame un poco más y abro el expediente.`;
-  }
-  return CAIDA;
-}
+const txt = (v: unknown, max = 200) => String(v ?? "").trim().slice(0, max);
 
 async function llamaAnthropic(mensajes: Mensaje[], system: string) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -275,11 +334,8 @@ async function llamaAnthropic(mensajes: Mensaje[], system: string) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: MODELO,
-      max_tokens: MAX_TOKENS,
-      system,
-      tools: HERRAMIENTAS,
-      messages: mensajes,
+      model: MODELO, max_tokens: MAX_TOKENS, system,
+      tools: HERRAMIENTAS, messages: mensajes,
     }),
   });
   if (!r.ok) {
@@ -292,18 +348,15 @@ async function llamaAnthropic(mensajes: Mensaje[], system: string) {
 /* --------------------------------------------------------------- servidor */
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: CORS });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), {
-      status,
-      headers: { ...CORS, "Content-Type": "application/json" },
+      status, headers: { ...CORS, "Content-Type": "application/json" },
     });
 
-  const caida = (contexto: unknown = null) =>
-    json({ reply: CAIDA, contexto, protocolo: null, expediente: null, aviso: null });
+  const vacio = { protocolo: null, normativa: null, expediente: null, escalado: null };
+  const caida = (contexto: unknown = null) => json({ reply: CAIDA, contexto, ...vacio });
 
   if (!ANTHROPIC_API_KEY || !SUPABASE_URL || !SERVICE_KEY) {
     console.warn("[fincas-chat] faltan secrets");
@@ -312,25 +365,20 @@ Deno.serve(async (req: Request) => {
 
   try {
     const cuerpo = await req.json().catch(() => ({}));
-    const mensaje = String((cuerpo as any).mensaje ?? "").trim().slice(0, 2000);
+    const mensaje = txt((cuerpo as any).mensaje, 2000);
     const ctxEntrada = ((cuerpo as any).contexto ?? {}) as Record<string, unknown>;
 
-    /* ---- Estado de servidor de esta conversación -----------------------
-       La comunidad activa entra por el selector de la web o por el eco del
-       turno anterior; a partir de ahí sólo la cambia buscar_inmueble. */
+    /* La comunidad activa la fija SÓLO buscar_comunidad, o el eco del turno
+       anterior una vez comprobado que existe. El modelo no la elige. */
     let comunidadActiva: string | null = null;
     let comunidadNombre = "";
     let inmuebleActivo: string | null = null;
     let puertaActiva = "";
 
-    const idPropuesto = esUuid((cuerpo as any).comunidad_id)
-      ? String((cuerpo as any).comunidad_id)
-      : esUuid(ctxEntrada.comunidad_id)
-      ? String(ctxEntrada.comunidad_id)
-      : null;
-
-    if (idPropuesto) {
-      const filas = await db(`fincas_comunidades?id=eq.${idPropuesto}&select=id,nombre`);
+    if (esUuid(ctxEntrada.comunidad_id)) {
+      const filas = await db(
+        `fincas_comunidades?id=eq.${ctxEntrada.comunidad_id}&activa=is.true&select=id,nombre`,
+      );
       if (Array.isArray(filas) && filas.length) {
         comunidadActiva = filas[0].id;
         comunidadNombre = filas[0].nombre;
@@ -352,65 +400,43 @@ Deno.serve(async (req: Request) => {
 
     if (!mensajes.length) {
       return json({
-        reply:
-          "Hola, soy Nora, de la administración. Cuéntame qué ha pasado y de qué comunidad me llamas.",
-        contexto: { comunidad_id: comunidadActiva, inmueble_id: inmuebleActivo },
-        protocolo: null, expediente: null, aviso: null,
+        reply: "Hola, soy Nora, de Whitemoon Fincas. Cuéntame qué ha pasado.",
+        contexto: { comunidad_id: null, inmueble_id: null }, ...vacio,
       });
     }
 
-    /* Al modelo se le dice lo que YA está resuelto, para que no lo pregunte
-       otra vez ni se lo invente. */
     let system = SYSTEM;
     if (comunidadActiva) {
-      system += `\n\nCONTEXTO
-- LA COMUNIDAD YA ESTÁ IDENTIFICADA: "${comunidadNombre}", comunidad_id = ${comunidadActiva}.
-- NO preguntes de qué comunidad se trata. Ya lo sabes. Usa ese comunidad_id en todas las herramientas.`;
+      system += `\n\nCONTEXTO\n- Comunidad ya identificada: "${comunidadNombre}", comunidad_id = ${comunidadActiva}. NO la vuelvas a preguntar.`;
       if (inmuebleActivo) {
-        system += `\n- El inmueble también está identificado: puerta ${puertaActiva}, inmueble_id = ${inmuebleActivo}. Tampoco lo preguntes.`;
+        system += `\n- Inmueble ya identificado: puerta ${puertaActiva}, inmueble_id = ${inmuebleActivo}.`;
       }
     } else {
-      system += `\n\nCONTEXTO
-- Todavía NO sabes la comunidad. Averíguala antes de nada.`;
+      system += `\n\nCONTEXTO\n- Todavía NO sabes de qué comunidad te hablan. Averígualo antes de aplicar nada.`;
     }
 
-    /* Lo que este turno haya producido de verdad, contra la base de datos. */
     let protocoloAplicado: unknown = null;
+    let normativaCitada: unknown = null;
     let expedienteCreado: any = null;
-    let aviso: unknown = null;
-
-    /* El modelo suele preguntar Y llamar a la herramienta en el MISMO turno
-       ("¿hay alguien atrapado?" + buscar_protocolo). Ese texto va en la misma
-       respuesta que el tool_use, así que hay que guardarlo: si en la vuelta
-       final ya no dice nada —porque la pregunta ya la hizo— es lo que el
-       vecino tiene que leer. Sin esto la pregunta se perdía. */
+    let escalado: unknown = null;
     let textoParcial = "";
 
     for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
       const data = await llamaAnthropic(mensajes, system);
-      if (!data) {
-        return caida({ comunidad_id: comunidadActiva, inmueble_id: inmuebleActivo });
-      }
+      if (!data) return caida({ comunidad_id: comunidadActiva, inmueble_id: inmuebleActivo });
 
       if (data.stop_reason !== "tool_use") {
-        /* Si el modelo se queda sin texto (típicamente stop_reason
-           "max_tokens" cortándole a mitad de una llamada a herramienta) NO se
-           suelta el mensaje de caída: el trabajo contra la base de datos sí se
-           ha hecho, y decir "no puedo atenderte" sería mentir. Se responde con
-           lo que consta. */
         return json({
           reply: textoDe(data.content) || textoParcial ||
-            respuestaDeRespaldo(expedienteCreado, protocoloAplicado),
+            "Perdona, se me ha cortado. ¿Me lo repites?",
           contexto: { comunidad_id: comunidadActiva, inmueble_id: inmuebleActivo },
-          protocolo: protocoloAplicado,
-          expediente: expedienteCreado,
-          aviso,
+          protocolo: protocoloAplicado, normativa: normativaCitada,
+          expediente: expedienteCreado, escalado,
         });
       }
 
       const dicho = textoDe(data.content);
       if (dicho) textoParcial = dicho;
-
       mensajes.push({ role: "assistant", content: data.content });
 
       const resultados: unknown[] = [];
@@ -419,259 +445,212 @@ Deno.serve(async (req: Request) => {
         const args = (bloque.input ?? {}) as Record<string, unknown>;
         let salida: unknown;
 
-        /* ----------------------------------------------- buscar_inmueble */
-        if (bloque.name === "buscar_inmueble") {
-          const nombre = String(args.comunidad ?? "").trim().slice(0, 120);
-          const puerta = String(args.puerta ?? "").trim().slice(0, 20);
+        /* --------------------------------------------- buscar_comunidad */
+        if (bloque.name === "buscar_comunidad") {
+          const busca = txt(args.texto, 120);
+          const filas = await db("rpc/fincas_buscar_comunidad", {
+            method: "POST", body: JSON.stringify({ p_texto: busca }),
+          });
+          const lista = Array.isArray(filas) ? filas : [];
+          if (lista.length === 1) {
+            if (lista[0].id !== comunidadActiva) { inmuebleActivo = null; puertaActiva = ""; }
+            comunidadActiva = lista[0].id;
+            comunidadNombre = lista[0].nombre;
+          }
+          salida = lista.length
+            ? { ok: true, comunidades: lista, fijada: lista.length === 1 ? lista[0].id : null }
+            : { ok: true, comunidades: [],
+                nota: "Ninguna comunidad dada de alta encaja con eso. No inventes: pregunta otra vez la dirección o escala a administración." };
 
-          if (!nombre) {
-            salida = { ok: false, error: "Falta el nombre de la comunidad." };
+        /* ---------------------------------------------- buscar_inmueble */
+        } else if (bloque.name === "buscar_inmueble") {
+          if (!comunidadActiva) {
+            salida = { ok: false, error: "Identifica antes la comunidad con buscar_comunidad." };
           } else {
-            const comus = await db(
-              `fincas_comunidades?nombre=ilike.${encodeURIComponent("%" + nombre + "%")}&select=id,nombre,direccion`,
+            const puerta = txt(args.puerta, 20);
+            const filas = await db(
+              `fincas_inmuebles?comunidad_id=eq.${comunidadActiva}&puerta=ilike.${encodeURIComponent(puerta)}&select=id,puerta,propietario_nombre`,
             );
-            if (!Array.isArray(comus) || comus.length === 0) {
-              salida = {
-                ok: false,
-                error: `No encuentro ninguna comunidad que se llame "${nombre}". Las comunidades de esta demo son Madrid 1 y Madrid 2.`,
-              };
-            } else if (comus.length > 1) {
-              salida = {
-                ok: false,
-                error:
-                  "Ese nombre encaja con varias comunidades: " +
-                  comus.map((c: any) => c.nombre).join(", ") +
-                  ". Pregunta cuál es.",
-                candidatas: comus.map((c: any) => c.nombre),
-              };
+            if (Array.isArray(filas) && filas.length) {
+              inmuebleActivo = filas[0].id;
+              puertaActiva = filas[0].puerta;
+              salida = { ok: true, inmueble_id: filas[0].id, puerta: filas[0].puerta,
+                         propietario: filas[0].propietario_nombre };
             } else {
-              /* Cambiar de comunidad reinicia el inmueble: no se arrastra
-                 un 3C de la comunidad anterior. */
-              const c = comus[0];
-              if (c.id !== comunidadActiva) {
-                inmuebleActivo = null;
-                puertaActiva = "";
-              }
-              comunidadActiva = c.id;
-              comunidadNombre = c.nombre;
-
-              let inmueble: any = null;
-              if (puerta) {
-                const inms = await db(
-                  `fincas_inmuebles?comunidad_id=eq.${c.id}&puerta=ilike.${encodeURIComponent(puerta)}&select=id,puerta,propietario_nombre`,
-                );
-                if (Array.isArray(inms) && inms.length) {
-                  inmueble = inms[0];
-                  inmuebleActivo = inmueble.id;
-                  puertaActiva = inmueble.puerta;
-                }
-              }
-              salida = {
-                ok: true,
-                comunidad_id: c.id,
-                comunidad: c.nombre,
-                direccion: c.direccion,
-                inmueble: inmueble
-                  ? {
-                      inmueble_id: inmueble.id,
-                      puerta: inmueble.puerta,
-                      propietario: inmueble.propietario_nombre,
-                    }
-                  : null,
-                nota:
-                  puerta && !inmueble
-                    ? `No hay ninguna puerta "${puerta}" dada de alta en ${c.nombre}. Puedes seguir sin inmueble.`
-                    : undefined,
-              };
+              salida = { ok: true, inmueble: null,
+                         nota: `No hay ninguna puerta "${puerta}" dada de alta en ${comunidadNombre}. Se puede seguir sin inmueble.` };
             }
           }
 
-          /* ---------------------------------------------- buscar_protocolo */
+        /* --------------------------------------------- buscar_protocolo */
         } else if (bloque.name === "buscar_protocolo") {
-          const pedida = String(args.comunidad_id ?? "").trim();
-
+          const pedida = txt(args.comunidad_id, 40);
           if (!comunidadActiva) {
-            salida = {
-              ok: false,
-              error: "Todavía no hay comunidad identificada. Llama antes a buscar_inmueble.",
-            };
+            salida = { ok: false, error: "Identifica antes la comunidad con buscar_comunidad." };
           } else if (pedida && pedida !== comunidadActiva) {
-            /* El guardia. El modelo ha pedido protocolos de OTRA comunidad:
-               se rechaza y queda registrado. Nunca se sirve. */
-            await auditar("protocolo_denegado", "fincas_protocolos", {
-              comunidad_activa: comunidadActiva,
-              comunidad_pedida: pedida,
-            });
-            salida = {
-              ok: false,
-              error:
-                "No puedes consultar los protocolos de otra comunidad. " +
-                `La comunidad activa es ${comunidadNombre} (${comunidadActiva}).`,
-            };
+            await auditar("protocolo_denegado", "fincas_protocolos",
+              { comunidad_activa: comunidadActiva, comunidad_pedida: pedida });
+            salida = { ok: false, error: `No puedes consultar protocolos de otra comunidad. La activa es ${comunidadNombre}.` };
           } else {
-            const categoria = String(args.categoria ?? "").trim();
-            const subtipo = String(args.subtipo ?? "").trim();
-            const consulta = [categoria, subtipo, String(args.consulta ?? "")]
-              .map((s) => s.trim())
-              .filter(Boolean)
-              .join(" ");
-
+            const consulta = [txt(args.categoria, 60), txt(args.subtipo, 60), txt(args.consulta, 300)]
+              .filter(Boolean).join(" ");
             const filas = await db("rpc/fincas_buscar_protocolo", {
               method: "POST",
-              body: JSON.stringify({
-                p_comunidad: comunidadActiva,
-                p_consulta: consulta || null,
-              }),
+              body: JSON.stringify({ p_comunidad: comunidadActiva, p_consulta: consulta || null }),
             });
-
-            /* Cinturón y tirantes: la función SQL ya filtra, pero se vuelve
-               a comprobar aquí antes de dejar salir una sola fila. */
-            const limpias = (Array.isArray(filas) ? filas : []).filter(
-              (p: any) => p.comunidad_id === comunidadActiva,
-            );
-
+            const limpias = (Array.isArray(filas) ? filas : [])
+              .filter((p: any) => p.comunidad_id === comunidadActiva);
             if (!limpias.length) {
-              salida = {
-                ok: true,
-                protocolos: [],
-                nota: `No hay protocolo para ese caso en ${comunidadNombre}. Escala al equipo de la administración: no inventes proveedor.`,
-              };
+              salida = { ok: true, protocolos: [],
+                nota: `No hay protocolo para ese caso en ${comunidadNombre}. Prueba consultar_normativa; si tampoco, escala a administración. No inventes proveedor.` };
             } else {
               protocoloAplicado = { ...limpias[0], comunidad: comunidadNombre };
               salida = { ok: true, comunidad: comunidadNombre, protocolos: limpias };
             }
           }
 
-          /* ---------------------------------------------- crear_expediente */
-        } else if (bloque.name === "crear_expediente") {
-          const pedida = String(args.comunidad_id ?? "").trim();
-
+        /* ------------------------------------------- consultar_normativa */
+        } else if (bloque.name === "consultar_normativa") {
           if (!comunidadActiva) {
-            salida = { ok: false, error: "No hay comunidad identificada todavía." };
+            salida = { ok: false, error: "Identifica antes la comunidad." };
+          } else {
+            const filas = await db("rpc/fincas_buscar_normativa", {
+              method: "POST",
+              body: JSON.stringify({ p_comunidad: comunidadActiva, p_consulta: txt(args.consulta, 300) }),
+            });
+            const limpias = (Array.isArray(filas) ? filas : [])
+              .filter((d: any) => d.comunidad_id === comunidadActiva);
+            if (limpias.length) normativaCitada = { ...limpias[0], comunidad: comunidadNombre };
+            salida = limpias.length
+              ? { ok: true, documentos: limpias }
+              : { ok: true, documentos: [],
+                  nota: `No hay nada sobre eso en los documentos de ${comunidadNombre}. Escala a administración en vez de responder de memoria.` };
+          }
+
+        /* --------------------------------------------- crear_expediente */
+        } else if (bloque.name === "crear_expediente") {
+          const pedida = txt(args.comunidad_id, 40);
+          if (!comunidadActiva) {
+            salida = { ok: false, error: "No hay comunidad identificada." };
           } else if (pedida && pedida !== comunidadActiva) {
             salida = { ok: false, error: "No puedes abrir expedientes en otra comunidad." };
           } else if (!esUuid(args.protocolo_id)) {
-            salida = { ok: false, error: "Falta el protocolo_id que devuelve buscar_protocolo." };
+            salida = { ok: false, error: "Falta el protocolo_id de buscar_protocolo." };
+          } else if (!txt(args.solicitante_nombre)) {
+            salida = { ok: false, error: "Falta el nombre del vecino. Pídeselo." };
           } else {
-            /* El protocolo se relee de la base filtrando otra vez por
-               comunidad: la cita y el proveedor que acaban en el expediente
-               salen de la fila real, no de lo que diga el modelo. */
+            /* El protocolo se relee filtrando otra vez por comunidad: la cita
+               y el proveedor guardados salen de la fila real. */
             const prots = await db(
               `fincas_protocolos?id=eq.${args.protocolo_id}&comunidad_id=eq.${comunidadActiva}` +
-                `&select=id,categoria,subtipo,proveedor_nombre,proveedor_tel,urgencia_default,cita_fuente`,
+              `&select=id,categoria,subtipo,proveedor_nombre,proveedor_tel,urgencia_default,cita_fuente`,
             );
             const p = Array.isArray(prots) && prots.length ? prots[0] : null;
-
             if (!p) {
-              salida = { ok: false, error: "Ese protocolo no pertenece a la comunidad activa." };
+              salida = { ok: false, error: "Ese protocolo no es de la comunidad activa." };
             } else {
-              const urg = String(args.urgencia ?? "").trim().toLowerCase();
-              const fila = {
-                comunidad_id: comunidadActiva,
-                inmueble_id: esUuid(args.inmueble_id) ? args.inmueble_id : inmuebleActivo,
-                tipo: p.categoria,
-                subtipo: p.subtipo,
-                urgencia: URGENCIAS.includes(urg) ? urg : p.urgencia_default,
-                estado: "nuevo",
-                descripcion: String(args.descripcion ?? "").trim().slice(0, 1000),
-                protocolo_id: p.id,
-                protocolo_citado: p.cita_fuente,
-                proveedor_nombre: p.proveedor_nombre,
-                proveedor_tel: p.proveedor_tel,
-              };
+              const urg = txt(args.urgencia, 20).toLowerCase();
               const creado = await db("fincas_expedientes", {
                 method: "POST",
-                body: JSON.stringify(fila),
+                body: JSON.stringify({
+                  comunidad_id: comunidadActiva,
+                  inmueble_id: esUuid(args.inmueble_id) ? args.inmueble_id : inmuebleActivo,
+                  tipo: p.categoria, subtipo: p.subtipo,
+                  urgencia: URGENCIAS.includes(urg) ? urg : p.urgencia_default,
+                  estado: "nuevo",
+                  descripcion: txt(args.descripcion, 1000),
+                  protocolo_id: p.id, protocolo_citado: p.cita_fuente,
+                  proveedor_nombre: p.proveedor_nombre, proveedor_tel: p.proveedor_tel,
+                  solicitante_nombre: txt(args.solicitante_nombre, 120),
+                  solicitante_tel: txt(args.solicitante_tel, 40),
+                  solicitante_email: txt(args.solicitante_email, 160),
+                }),
               });
               const exp = Array.isArray(creado) && creado.length ? creado[0] : null;
-
               if (!exp) {
                 salida = { ok: false, error: "No se ha podido abrir el expediente." };
               } else {
                 expedienteCreado = { ...exp, comunidad: comunidadNombre, puerta: puertaActiva };
-                await auditar("expediente_creado", "fincas_expedientes", {
-                  ref: exp.ref,
-                  comunidad: comunidadNombre,
-                  protocolo: p.cita_fuente,
-                });
-                salida = {
-                  ok: true,
-                  expediente_id: exp.id,
-                  referencia: exp.ref,
-                  urgencia: exp.urgencia,
-                  proveedor_asignado: p.proveedor_nombre,
-                  protocolo_citado: p.cita_fuente,
-                };
+                avisarEquipo({ tipo: "expediente", ref: exp.ref, comunidad: comunidadNombre,
+                               puerta: puertaActiva, subtipo: exp.subtipo,
+                               proveedor: p.proveedor_nombre, urgencia: exp.urgencia });
+                salida = { ok: true, expediente_id: exp.id, referencia: exp.ref,
+                           urgencia: exp.urgencia, proveedor_asignado: p.proveedor_nombre,
+                           protocolo_citado: p.cita_fuente };
               }
             }
           }
 
-          /* ------------------------------------------ crear_parte_proveedor */
-        } else if (bloque.name === "crear_parte_proveedor") {
-          if (!esUuid(args.expediente_id)) {
-            salida = { ok: false, error: "Falta el expediente_id." };
-          } else if (!comunidadActiva) {
-            salida = { ok: false, error: "No hay comunidad identificada." };
+        /* ---------------------------------------------- avisar_proveedor */
+        } else if (bloque.name === "avisar_proveedor") {
+          if (!esUuid(args.expediente_id) || !comunidadActiva) {
+            salida = { ok: false, error: "Falta el expediente_id o la comunidad." };
           } else {
-            const exps = await db(
-              `fincas_expedientes?id=eq.${args.expediente_id}&comunidad_id=eq.${comunidadActiva}` +
-                `&select=id,ref,proveedor_nombre,proveedor_tel,subtipo,inmueble_id`,
-            );
-            const exp = Array.isArray(exps) && exps.length ? exps[0] : null;
+            const r = await fetch(`${SUPABASE_URL}/functions/v1/fincas-enviar-email`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-fincas-internal": SERVICE_KEY },
+              body: JSON.stringify({ expediente_id: args.expediente_id, tipo: "peticion_presupuesto" }),
+            }).then((x) => x.json()).catch(() => null);
 
-            if (!exp) {
-              salida = { ok: false, error: "Ese expediente no es de la comunidad activa." };
-            } else if (!exp.proveedor_nombre) {
-              salida = { ok: false, error: "El expediente no tiene proveedor asignado por protocolo." };
+            if (r?.ok) {
+              salida = { ok: true, proveedor_avisado: r.para, referencia: r.ref,
+                         nota: "Correo enviado de verdad al proveedor." };
             } else {
-              await db(`fincas_expedientes?id=eq.${exp.id}`, {
-                method: "PATCH",
-                headers: { Prefer: "return=minimal" },
-                body: JSON.stringify({
-                  estado: "asignado",
-                  proveedor_avisado_at: new Date().toISOString(),
-                }),
-              });
-
-              let puerta = puertaActiva;
-              if (!puerta && esUuid(exp.inmueble_id)) {
-                const inms = await db(`fincas_inmuebles?id=eq.${exp.inmueble_id}&select=puerta`);
-                if (Array.isArray(inms) && inms.length) puerta = inms[0].puerta;
-              }
-
-              await auditar("parte_proveedor", "fincas_expedientes", {
-                ref: exp.ref,
-                proveedor: exp.proveedor_nombre,
-                comunidad: comunidadNombre,
-              });
-
-              /* El aviso lo dispara el cliente contra fincas-notify. */
-              aviso = {
-                ref: exp.ref,
-                comunidad: comunidadNombre,
-                puerta,
-                subtipo: exp.subtipo,
-                proveedor: exp.proveedor_nombre,
-              };
-
-              salida = {
-                ok: true,
-                proveedor_avisado: exp.proveedor_nombre,
-                telefono: exp.proveedor_tel,
-                referencia: exp.ref,
-                nota:
-                  "Aviso al proveedor SIMULADO en esta demo: se registra el parte, no se hace la llamada real.",
-              };
+              salida = { ok: false,
+                error: r?.error ?? "No se ha podido enviar el correo al proveedor.",
+                nota: "Dile al vecino que el expediente queda abierto y que la administración lo cursa. No prometas que ya está avisado." };
             }
           }
+
+        /* --------------------------------------- escalar_a_administracion */
+        } else if (bloque.name === "escalar_a_administracion") {
+          const comu = comunidadActiva ??
+            (esUuid(args.comunidad_id) ? String(args.comunidad_id) : null);
+          if (!comu) {
+            /* Sin comunidad no hay expediente que valga (la tabla la exige),
+               pero el equipo tiene que enterarse igual. */
+            await auditar("escalado_sin_comunidad", "fincas_expedientes",
+              { motivo: txt(args.motivo, 300), descripcion: txt(args.descripcion, 500),
+                contacto: txt(args.solicitante_tel) || txt(args.solicitante_email) });
+            avisarEquipo({ tipo: "escalado", motivo: txt(args.motivo, 200),
+                           comunidad: "sin identificar",
+                           contacto: `${txt(args.solicitante_nombre)} ${txt(args.solicitante_tel)}`.trim() });
+            escalado = { comunidad: null, motivo: txt(args.motivo, 300) };
+            salida = { ok: true, escalado: true, referencia: null,
+                       nota: "Escalado sin comunidad identificada: no hay expediente, pero el equipo ya está avisado." };
+          } else {
+            const creado = await db("fincas_expedientes", {
+              method: "POST",
+              body: JSON.stringify({
+                comunidad_id: comu,
+                inmueble_id: inmuebleActivo,
+                tipo: "consulta", subtipo: "sin_protocolo",
+                urgencia: "media", estado: "nuevo",
+                descripcion: txt(args.descripcion, 1000),
+                protocolo_citado: "Sin protocolo aplicable — escalado por el agente",
+                solicitante_nombre: txt(args.solicitante_nombre, 120),
+                solicitante_tel: txt(args.solicitante_tel, 40),
+                solicitante_email: txt(args.solicitante_email, 160),
+              }),
+            });
+            const exp = Array.isArray(creado) && creado.length ? creado[0] : null;
+            if (exp) {
+              escalado = { ref: exp.ref, comunidad: comunidadNombre, motivo: txt(args.motivo, 300) };
+              avisarEquipo({ tipo: "escalado", ref: exp.ref, comunidad: comunidadNombre,
+                             motivo: txt(args.motivo, 200) });
+              salida = { ok: true, escalado: true, referencia: exp.ref,
+                         nota: "Expediente abierto sin proveedor para que lo revise una persona." };
+            } else {
+              salida = { ok: false, error: "No se ha podido registrar el escalado." };
+            }
+          }
+
         } else {
           salida = { ok: false, error: "Herramienta desconocida." };
         }
 
         resultados.push({
-          type: "tool_result",
-          tool_use_id: bloque.id,
-          content: JSON.stringify(salida),
+          type: "tool_result", tool_use_id: bloque.id, content: JSON.stringify(salida),
         });
       }
 
@@ -680,11 +659,10 @@ Deno.serve(async (req: Request) => {
 
     console.warn("[fincas-chat] agotadas las vueltas de herramienta");
     return json({
-      reply: textoParcial || respuestaDeRespaldo(expedienteCreado, protocoloAplicado),
+      reply: textoParcial || "Lo tengo anotado. ¿Necesitas algo más?",
       contexto: { comunidad_id: comunidadActiva, inmueble_id: inmuebleActivo },
-      protocolo: protocoloAplicado,
-      expediente: expedienteCreado,
-      aviso,
+      protocolo: protocoloAplicado, normativa: normativaCitada,
+      expediente: expedienteCreado, escalado,
     });
   } catch (e) {
     console.warn("[fincas-chat] error:", e);

@@ -1,0 +1,174 @@
+/* =========================================================================
+   Whitemoon Fincas — base compartida (landing, chat y CRM)
+   =========================================================================
+   Paleta WhiteMoon. HTML/CSS/JS puro, sin frameworks. Todo el color pasa
+   por variables para poder recolorar a la marca de un cliente sin tocar
+   una sola regla.
+   ========================================================================= */
+
+:root {
+  --bg:    #08080d;
+  --p:     #7c4dff;
+  --p2:    #9d70ff;
+  --g:     #00d4aa;
+  --text:  #f0f0f5;
+  --muted: #8888a0;
+
+  --sup-1: #0e0e17;
+  --sup-2: #141420;
+  --sup-3: #1b1b2b;
+  --linea: #26263a;
+  --linea-2: #33334d;
+
+  --critica: #ff5470;
+  --alta:    #ffa23e;
+  --media:   #7c4dff;
+  --baja:    #5a5a75;
+
+  --radio:   14px;
+  --radio-s: 10px;
+  --sombra:  0 18px 40px -24px rgba(0, 0, 0, .9);
+  --ancho:   1280px;
+}
+
+*{ box-sizing: border-box; }
+
+/* El atributo `hidden` gana SIEMPRE. Sin esto, cualquier regla de clase que
+   fije un display (`.velo { display:grid }`) pisa el display:none que el
+   navegador aplica a [hidden] y el elemento se ve aunque el HTML lo declare
+   oculto. */
+[hidden] { display: none !important; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Sora', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 { margin: 0; letter-spacing: -.03em; line-height: 1.08; }
+p { margin: 0; }
+a { color: var(--p2); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+button, input, select, textarea { font: inherit; }
+:focus-visible { outline: 2px solid var(--p2); outline-offset: 2px; }
+
+/* Contraste de pesos extremo: es lo que le da carácter a la tipografía. */
+.fino  { font-weight: 200; }
+.medio { font-weight: 500; }
+.gordo { font-weight: 700; }
+
+.wrap { max-width: var(--ancho); margin: 0 auto; padding: 0 28px; }
+
+/* --------------------------------------------------------------- botones */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 26px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .18s ease, background .18s ease, border-color .18s ease;
+}
+.btn:hover { transform: translateY(-1px); text-decoration: none; }
+.btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+.btn-p { background: var(--p); color: #fff; }
+.btn-p:hover { background: var(--p2); }
+.btn-g { background: var(--g); color: #06231d; }
+.btn-linea {
+  background: transparent; color: var(--text); border-color: var(--linea-2);
+}
+.btn-linea:hover { border-color: var(--p); }
+.btn-peligro {
+  background: transparent; color: var(--critica);
+  border-color: rgba(255, 84, 112, .45);
+}
+
+/* --------------------------------------------------------------- etiquetas */
+
+.etiqueta {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.chip {
+  display: inline-block;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.chip.u-critica { color: var(--critica); background: rgba(255, 84, 112, .14); }
+.chip.u-alta    { color: var(--alta);    background: rgba(255, 162, 62, .14); }
+.chip.u-media   { color: var(--p2);      background: rgba(124, 77, 255, .16); }
+.chip.u-baja    { color: var(--muted);   background: rgba(136, 136, 160, .14); }
+.chip.ok        { color: var(--g);       background: rgba(0, 212, 170, .14); }
+.chip.aviso     { color: var(--alta);    background: rgba(255, 162, 62, .14); }
+.chip.neutro    { color: var(--muted);   background: rgba(136, 136, 160, .12); }
+
+/* Marca "dato protegido": tiene que cantar, es media UI de confianza. */
+.protegido {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--g);
+  background: rgba(0, 212, 170, .1);
+  border: 1px solid rgba(0, 212, 170, .3);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+/* -------------------------------------------------------- estados vacíos */
+
+.vacio {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding: 30px 26px;
+  border: 1px dashed var(--linea-2);
+  border-radius: var(--radio);
+  color: var(--muted);
+}
+.vacio strong { color: var(--text); font-weight: 600; font-size: 15px; }
+.vacio p { font-size: 13px; max-width: 52ch; }
+
+/* ------------------------------------------------------------- scroll rev */
+
+.rev { opacity: 0; transform: translateY(18px); }
+.rev.visible {
+  opacity: 1; transform: none;
+  transition: opacity .7s cubic-bezier(.2, .7, .3, 1), transform .7s cubic-bezier(.2, .7, .3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .rev { opacity: 1; transform: none; transition: none; }
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* ------------------------------------------------------------ scrollbars */
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--sup-1); }
+::-webkit-scrollbar-thumb { background: var(--linea-2); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: var(--p); }

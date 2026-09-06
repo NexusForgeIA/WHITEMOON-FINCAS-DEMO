@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CRM · Whitemoon Fincas</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@200;300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/admin.css">
+</head>
+<body class="crm">
+
+<!-- ================================================================ LOGIN -->
+<div class="login-velo" id="login">
+  <div class="login-caja">
+    <div class="marca">
+      <span class="luna" aria-hidden="true"></span>
+      <span class="marca-txt">
+        <b>Whitemoon Fincas</b>
+        <span>CRM privado</span>
+      </span>
+    </div>
+    <h1>Acceso administrador</h1>
+    <p>Sólo para el equipo de administración y contabilidad.</p>
+
+    <form id="form-login" autocomplete="on">
+      <div class="campo">
+        <label for="login-email">Email</label>
+        <input id="login-email" type="email" required autocomplete="username">
+      </div>
+      <div class="campo">
+        <label for="login-pass">Contraseña</label>
+        <input id="login-pass" type="password" required autocomplete="current-password">
+      </div>
+      <p class="login-error" id="login-error" hidden></p>
+      <button class="btn btn-p" type="submit" id="login-btn" style="justify-content:center">Entrar</button>
+    </form>
+
+    <p style="margin-top:20px;font-size:12px;color:var(--muted)">
+      ¿Eres vecino? <a href="./">Vuelve a la web</a> y cuéntanoslo por el chat.
+    </p>
+  </div>
+</div>
+
+<!-- ================================================================ SHELL -->
+<div class="crm-shell" id="shell" hidden>
+
+  <aside class="lateral">
+    <a class="marca" href="./">
+      <span class="luna" aria-hidden="true"></span>
+      <span class="marca-txt">
+        <b>Whitemoon Fincas</b>
+        <span>CRM</span>
+      </span>
+    </a>
+
+    <nav id="nav">
+      <button class="nav-btn activo" data-seccion="expedientes">
+        Expedientes <span class="cuenta" id="c-expedientes">0</span>
+      </button>
+      <button class="nav-btn" data-seccion="presupuestos">
+        Presupuestos <span class="cuenta" id="c-presupuestos">0</span>
+      </button>
+      <button class="nav-btn" data-seccion="facturacion">
+        Facturación <span class="cuenta" id="c-facturacion">0</span>
+      </button>
+      <button class="nav-btn" data-seccion="comunidades">
+        Comunidades <span class="cuenta" id="c-comunidades">0</span>
+      </button>
+      <button class="nav-btn" data-seccion="proveedores">
+        Proveedores <span class="cuenta" id="c-proveedores">0</span>
+      </button>
+      <button class="nav-btn" data-seccion="auditoria">Auditoría</button>
+    </nav>
+
+    <div class="lateral-pie">
+      <p id="quien"></p>
+      <button class="btn-mini" id="salir">Cerrar sesión</button>
+    </div>
+  </aside>
+
+  <main class="panel" id="panel"></main>
+</div>
+
+<!-- Modal genérico: ficha de expediente y editores. -->
+<div class="velo" id="velo" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-tit">
+    <button class="cerrar" id="cerrar-modal" aria-label="Cerrar">×</button>
+    <div id="modal-cuerpo"></div>
+  </div>
+</div>
+
+<!-- pdf.js NO se carga aquí: admin.js lo importa dinámicamente sólo cuando
+     alguien sube una normativa, que es una acción poco frecuente. Cargarlo
+     siempre serían cientos de KB para todos los que sólo miran expedientes. -->
+<script type="module" src="assets/js/admin.js"></script>
+</body>
+</html>

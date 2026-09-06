@@ -3,173 +3,266 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Demo · Administración de fincas con IA — WhiteMoon</title>
-<meta name="description" content="Demo de WhiteMoon Agencia IA: agente que atiende al propietario aplicando el protocolo de SU comunidad, y panel CRM con expedientes y cola de aprobación.">
-<meta name="robots" content="noindex, nofollow">
+<title>Whitemoon Fincas — Administración de fincas con agente IA</title>
+<meta name="description" content="Administración de fincas de Whitemoon: el vecino escribe, el agente identifica su comunidad, aplica el protocolo de esa finca y avisa al proveedor asignado. Expedientes, presupuestos y facturación con aprobación humana.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/estilo.css">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@200;300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/landing.css">
 </head>
 <body>
 
-<!-- El aviso de que esto es una demo va arriba del todo, fijo y sin ironía:
-     el prospecto tiene que saber en todo momento qué es real y qué no. -->
-<div class="cinta-demo" role="note">
-  <strong>Demo.</strong> NetFincas y la telefonía están <strong>simulados</strong> en esta
-  demostración. Los datos son ficticios.
-</div>
-
-<header class="cabecera">
-  <div class="marca">
-    <span class="luna" aria-hidden="true"></span>
-    <div>
-      <p class="marca-nombre">WhiteMoon</p>
-      <p class="marca-sub">Administración de fincas · agente IA + CRM</p>
-    </div>
+<header class="cab">
+  <div class="cab-in">
+    <a class="marca" href="./" aria-label="Whitemoon Fincas, inicio">
+      <span class="luna" aria-hidden="true"></span>
+      <span class="marca-txt">
+        <b>Whitemoon Fincas</b>
+        <span>Administración de fincas</span>
+      </span>
+    </a>
+    <nav class="cab-nav">
+      <a class="enlace" href="#servicios">Servicios</a>
+      <a class="enlace" href="#chat">Incidencias</a>
+      <a class="btn btn-linea" href="admin.html">Acceso administrador</a>
+    </nav>
   </div>
-
-  <nav class="pestanas" role="tablist" aria-label="Vistas de la demo">
-    <button class="pestana activa" role="tab" aria-selected="true"  data-vista="chat">
-      Chat del propietario
-    </button>
-    <button class="pestana"        role="tab" aria-selected="false" data-vista="panel">
-      Panel del administrador
-    </button>
-  </nav>
 </header>
 
 <main>
 
-<!-- ================================================================== -->
-<!-- VISTA 1 · CHAT DEL PROPIETARIO                                     -->
-<!-- ================================================================== -->
-<section id="vista-chat" class="vista activa" aria-label="Chat del propietario">
+<!-- ================================================================= HERO -->
+<section class="hero">
+  <div class="fachada" id="fachada" aria-hidden="true"></div>
+  <span class="fantasma" aria-hidden="true">FINCAS</span>
 
-  <div class="chat-layout">
-
-    <div class="col-chat">
-      <div class="tarjeta selector-comunidad">
-        <label for="sel-comunidad">Llamo desde</label>
-        <select id="sel-comunidad">
-          <option value="">Que lo diga el vecino en el chat</option>
-        </select>
-        <p class="pista">
-          Cambia la comunidad y repite la <strong>misma frase</strong>: el proveedor que se
-          activa es distinto, porque el protocolo es de cada comunidad.
-        </p>
-      </div>
-
-      <div class="tarjeta chat">
-        <div class="chat-hilo" id="hilo" aria-live="polite"></div>
-
-        <div class="sugerencias" id="sugerencias">
-          <button type="button" data-frase="El ascensor está parado">El ascensor está parado</button>
-          <button type="button" data-frase="Hay una fuga de agua en el garaje">Fuga en el garaje</button>
-          <button type="button" data-frase="Soy del 3C de Madrid 2 y el ascensor no funciona">«3C de Madrid 2»</button>
-          <button type="button" data-frase="Hay una plaga de cucarachas en el portal">Caso sin protocolo</button>
-        </div>
-
-        <form class="chat-form" id="form-chat" autocomplete="off">
-          <input id="entrada" type="text" placeholder="Cuéntame qué ha pasado…" maxlength="500" required>
-          <button type="submit" id="btn-enviar" aria-label="Enviar">Enviar</button>
-        </form>
+  <div class="hero-in">
+    <div>
+      <p class="etiqueta rev">Administración de fincas · Majadahonda, Madrid</p>
+      <h1 class="rev">
+        La incidencia de tu vecino,<br>
+        resuelta <b>a la primera</b> y<br>
+        <span class="rota" aria-label="con el protocolo de tu comunidad">
+          <span>
+            con tu protocolo<br>
+            con tu proveedor<br>
+            con tu normativa<br>
+            sin repetirte<br>
+            con tu protocolo
+          </span>
+        </span>
+      </h1>
+      <p class="hero-sub rev">
+        Cada comunidad tiene sus proveedores, sus plazos y su manual. Nuestro
+        agente identifica de qué finca le hablan, aplica <em>ese</em> protocolo
+        y avisa por correo al proveedor que le toca. Sin plantillas y sin
+        confundir un edificio con otro.
+      </p>
+      <div class="hero-acc rev">
+        <a class="btn btn-p" href="#chat">Contar una incidencia</a>
+        <a class="btn btn-linea" href="#servicios">Ver qué hacemos</a>
       </div>
     </div>
 
-    <aside class="col-ficha">
-      <div class="tarjeta protocolo" id="tarjeta-protocolo" hidden>
-        <p class="etiqueta-bloque">Protocolo aplicado</p>
-        <h3 id="prot-titulo"></h3>
-        <p class="cita" id="prot-cita"></p>
-
-        <dl class="datos">
-          <div><dt>Comunidad</dt><dd id="prot-comunidad"></dd></div>
-          <div><dt>Proveedor asignado</dt><dd id="prot-proveedor"></dd></div>
-          <div><dt>Teléfono</dt><dd id="prot-tel"></dd></div>
-          <div><dt>Urgencia</dt><dd id="prot-urgencia"></dd></div>
-        </dl>
-
-        <p class="etiqueta-bloque">Pasos del protocolo</p>
-        <ol class="pasos" id="prot-pasos"></ol>
+    <!-- El producto entra en el hero: no se explica el chat, se usa. -->
+    <div class="chat-panel rev" id="chat-hero">
+      <div class="chat-cab">
+        <span class="punto" aria-hidden="true"></span>
+        <span>
+          <b>Nora</b>
+          <span>Atención al vecino · responde ahora</span>
+        </span>
       </div>
-
-      <div class="tarjeta expediente" id="tarjeta-expediente" hidden>
-        <p class="etiqueta-bloque">Expediente abierto</p>
-        <p class="ref" id="exp-ref"></p>
-        <p class="exp-linea" id="exp-detalle"></p>
-        <p class="nota-sim">Aviso al proveedor simulado en esta demo.</p>
-      </div>
-
-      <div class="tarjeta vacia" id="tarjeta-vacia">
-        <p class="etiqueta-bloque">Protocolo aplicado</p>
-        <p class="pista">
-          Aquí aparecerá, en cuanto Nora consulte, de qué comunidad y de qué sección del
-          manual sale la decisión. Nada de lo que ves aquí lo escribe el modelo: sale de la
-          base de datos.
-        </p>
-      </div>
-    </aside>
-
+      <div class="chat-hilo" id="hilo" aria-live="polite" role="log"></div>
+      <form class="chat-form" id="form-chat" autocomplete="off">
+        <label for="entrada" class="etiqueta" hidden>Tu mensaje</label>
+        <input id="entrada" type="text" maxlength="500" required
+               placeholder="Escribe lo que ha pasado…">
+        <button type="submit" id="btn-enviar">Enviar</button>
+      </form>
+      <p class="chat-pie">
+        Nora te preguntará de qué comunidad escribes. No hay respuestas
+        preparadas: lo que te diga sale del protocolo de tu finca.
+      </p>
+    </div>
   </div>
 </section>
 
-<!-- ================================================================== -->
-<!-- VISTA 2 · PANEL DEL ADMINISTRADOR                                  -->
-<!-- ================================================================== -->
-<section id="vista-panel" class="vista" aria-label="Panel del administrador" hidden>
+<!-- ================================================================ STATS -->
+<div class="stats rev">
+  <div class="stats-in">
+    <div class="stat">
+      <b>24<em>/7</em></b>
+      <span>El vecino escribe cuando le pasa, no cuando abre la oficina</span>
+    </div>
+    <div class="stat">
+      <b>1<em>ª</em></b>
+      <span>Pregunta siempre la misma: de qué comunidad me hablas</span>
+    </div>
+    <div class="stat">
+      <b>0</b>
+      <span>Proveedores inventados: si no hay protocolo, escala a una persona</span>
+    </div>
+    <div class="stat">
+      <b>100<em>%</em></b>
+      <span>De los gastos aprobados por una persona, nunca por la IA</span>
+    </div>
+  </div>
+</div>
 
-  <div class="aviso-gobernanza">
-    <span class="aviso-icono" aria-hidden="true">⚖</span>
+<!-- ============================================================ SERVICIOS -->
+<section class="seccion wrap" id="servicios">
+  <div class="seccion-cab rev">
+    <p class="etiqueta">Qué llevamos</p>
+    <h2>Administración completa, <b>con el papeleo hecho</b></h2>
     <p>
-      <strong>La IA prepara; el administrador decide.</strong>
-      La IA nunca adjudica ni emite sola: los presupuestos esperan aquí a que una persona
-      los apruebe o los rechace, y cada decisión queda en la auditoría.
+      Lo de siempre en una administración de fincas, más un agente que atiende
+      la primera llamada y deja el expediente montado antes de que nadie
+      levante el teléfono.
     </p>
   </div>
 
-  <section class="bloque">
-    <div class="bloque-cabecera">
-      <h2>Cola de aprobación</h2>
-      <p class="bloque-sub">Presupuestos pendientes de decisión humana</p>
-    </div>
-    <div id="cola-aprobacion" class="cola"></div>
-  </section>
+  <div class="servicios">
+    <article class="servicio rev">
+      <span class="servicio-num" aria-hidden="true">01</span>
+      <div>
+        <h3>Incidencias y averías</h3>
+        <p>
+          El vecino cuenta lo que pasa. El agente identifica la comunidad,
+          busca el protocolo de esa finca y abre el expediente con su
+          referencia. Si es un ascensor, lo primero que pregunta es si hay
+          alguien dentro.
+        </p>
+        <p class="det">Cada expediente guarda <b>de qué manual y de qué sección</b> salió la decisión.</p>
+      </div>
+    </article>
 
-  <section class="bloque">
-    <div class="bloque-cabecera">
-      <h2>Bandeja de expedientes</h2>
-      <p class="bloque-sub">
-        En tiempo real <span class="punto-vivo" id="punto-vivo" aria-hidden="true"></span>
-        <span id="estado-realtime">conectando…</span>
+    <article class="servicio rev">
+      <span class="servicio-num" aria-hidden="true">02</span>
+      <div>
+        <h3>Proveedores y presupuestos</h3>
+        <p>
+          Se avisa por correo al proveedor que asigna el protocolo de esa
+          comunidad, no al de la lista general. Cuando responde con su
+          presupuesto, entra solo en la bandeja y queda ligado al expediente.
+        </p>
+        <p class="det">El correo al proveedor es <b>real</b>. La adjudicación, siempre humana.</p>
+      </div>
+    </article>
+
+    <article class="servicio rev">
+      <span class="servicio-num" aria-hidden="true">03</span>
+      <div>
+        <h3>Juntas, actas y normativa</h3>
+        <p>
+          Los estatutos y las actas de cada comunidad se indexan por texto.
+          Cuando alguien pregunta si puede cerrar la terraza, la respuesta cita
+          el documento de su finca en vez de una norma genérica.
+        </p>
+        <p class="det">Búsqueda de texto en español sobre <b>los documentos de esa comunidad</b>.</p>
+      </div>
+    </article>
+
+    <article class="servicio rev">
+      <span class="servicio-num" aria-hidden="true">04</span>
+      <div>
+        <h3>Cuentas, cuotas y morosidad</h3>
+        <p>
+          Facturas y certificados de deuda se preparan como borrador y esperan
+          en una cola de aprobación. Nada sale a nombre de la comunidad sin que
+          una persona lo haya visto y firmado.
+        </p>
+        <p class="det">IBAN y datos del presidente <b>fuera del alcance del agente</b>, en otro esquema.</p>
+      </div>
+    </article>
+
+    <article class="servicio rev">
+      <span class="servicio-num" aria-hidden="true">05</span>
+      <div>
+        <h3>Trazabilidad</h3>
+        <p>
+          Cada expediente lleva su historial de comunicaciones: qué se mandó, a
+          quién, cuándo y qué contestaron. Y un registro de auditoría que no se
+          puede editar ni borrar, ni siquiera desde dentro.
+        </p>
+        <p class="det">Append-only de verdad: <b>UPDATE, DELETE y TRUNCATE bloqueados</b> por la base.</p>
+      </div>
+    </article>
+  </div>
+</section>
+
+<!-- ================================================================= CHAT -->
+<section class="seccion wrap" id="chat">
+  <div class="seccion-cab rev">
+    <p class="etiqueta">Para vecinos y propietarios</p>
+    <h2>Cuéntanos qué ha pasado, <b>sin formularios</b></h2>
+    <p>
+      Escribe arriba, en el chat. Nora te preguntará lo que necesite saber —
+      empezando por tu comunidad — y abrirá el expediente. Si tu caso no está
+      en el protocolo de tu finca, no se lo inventa: lo pasa a una persona.
+    </p>
+  </div>
+
+  <div class="chat-datos" id="chat-datos">
+    <div class="datocard protocolo" id="card-protocolo" hidden>
+      <p class="etiqueta">Protocolo aplicado</p>
+      <h4 id="prot-titulo"></h4>
+      <p class="cita" id="prot-cita"></p>
+      <dl>
+        <div><dt>Comunidad</dt><dd id="prot-comunidad"></dd></div>
+        <div><dt>Proveedor</dt><dd id="prot-proveedor"></dd></div>
+        <div><dt>Urgencia</dt><dd id="prot-urgencia"></dd></div>
+      </dl>
+    </div>
+
+    <div class="datocard" id="card-normativa" hidden>
+      <p class="etiqueta">Documento citado</p>
+      <h4 id="norm-titulo"></h4>
+      <p class="cita" id="norm-extracto"></p>
+    </div>
+
+    <div class="datocard expediente" id="card-expediente" hidden>
+      <p class="etiqueta">Expediente abierto</p>
+      <p class="ref" id="exp-ref"></p>
+      <p id="exp-detalle" style="font-size:12.5px;color:#c9c9dc"></p>
+    </div>
+
+    <div class="simulado rev">
+      <span aria-hidden="true">⚙</span>
+      <p>
+        <b>NetFincas está simulado</b> en esta versión: la sincronización con el
+        software de gestión todavía no está conectada y se indica siempre que
+        aparece. El resto —correo al proveedor, expedientes, presupuestos— es real.
       </p>
     </div>
-    <div class="kanban" id="kanban"></div>
-  </section>
 
+    <div class="confianza rev">
+      <span aria-hidden="true">🔐</span>
+      <p>
+        <b>IBAN y presidentes, fuera del alcance de la IA.</b> Viven en un esquema
+        de base de datos separado que la API no expone y al que el agente no
+        tiene ninguna herramienta para llegar. Sólo los ve el administrador,
+        autenticado, y cada consulta queda registrada.
+      </p>
+    </div>
+  </div>
 </section>
 
 </main>
 
-<!-- Ficha de expediente -->
-<div class="velo" id="velo" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ficha-ref">
-    <button class="cerrar" id="cerrar-ficha" aria-label="Cerrar">×</button>
-    <div id="ficha-cuerpo"></div>
-  </div>
-</div>
-
 <footer class="pie">
-  <p>
-    Demo construida por <strong>WhiteMoon Agencia IA</strong> · Majadahonda, Madrid ·
-    <a href="https://whitemoon.es">whitemoon.es</a>
-  </p>
-  <p class="pie-tec">
-    Sin embeddings: los protocolos son datos estructurados por comunidad + búsqueda de texto
-    de Postgres. Claude clasifica y conversa; la base de datos decide.
-  </p>
+  <div class="pie-in">
+    <p>
+      <strong>Whitemoon Fincas</strong> · Majadahonda, Madrid ·
+      <a href="mailto:comercial@whitemoon.es">comercial@whitemoon.es</a> ·
+      <a href="https://whitemoon.es">whitemoon.es</a>
+    </p>
+    <p><a href="admin.html">Acceso administrador</a></p>
+  </div>
 </footer>
 
-<script type="module" src="assets/js/app.js"></script>
+<script type="module" src="assets/js/landing.js"></script>
+<script type="module" src="assets/js/chat.js"></script>
 </body>
 </html>
