@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo · Administración de fincas con IA — WhiteMoon</title>
+<meta name="description" content="Demo de WhiteMoon Agencia IA: agente que atiende al propietario aplicando el protocolo de SU comunidad, y panel CRM con expedientes y cola de aprobación.">
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/estilo.css">
+</head>
+<body>
+
+<!-- El aviso de que esto es una demo va arriba del todo, fijo y sin ironía:
+     el prospecto tiene que saber en todo momento qué es real y qué no. -->
+<div class="cinta-demo" role="note">
+  <strong>Demo.</strong> NetFincas y la telefonía están <strong>simulados</strong> en esta
+  demostración. Los datos son ficticios.
+</div>
+
+<header class="cabecera">
+  <div class="marca">
+    <span class="luna" aria-hidden="true"></span>
+    <div>
+      <p class="marca-nombre">WhiteMoon</p>
+      <p class="marca-sub">Administración de fincas · agente IA + CRM</p>
+    </div>
+  </div>
+
+  <nav class="pestanas" role="tablist" aria-label="Vistas de la demo">
+    <button class="pestana activa" role="tab" aria-selected="true"  data-vista="chat">
+      Chat del propietario
+    </button>
+    <button class="pestana"        role="tab" aria-selected="false" data-vista="panel">
+      Panel del administrador
+    </button>
+  </nav>
+</header>
+
+<main>
+
+<!-- ================================================================== -->
+<!-- VISTA 1 · CHAT DEL PROPIETARIO                                     -->
+<!-- ================================================================== -->
+<section id="vista-chat" class="vista activa" aria-label="Chat del propietario">
+
+  <div class="chat-layout">
+
+    <div class="col-chat">
+      <div class="tarjeta selector-comunidad">
+        <label for="sel-comunidad">Llamo desde</label>
+        <select id="sel-comunidad">
+          <option value="">Que lo diga el vecino en el chat</option>
+        </select>
+        <p class="pista">
+          Cambia la comunidad y repite la <strong>misma frase</strong>: el proveedor que se
+          activa es distinto, porque el protocolo es de cada comunidad.
+        </p>
+      </div>
+
+      <div class="tarjeta chat">
+        <div class="chat-hilo" id="hilo" aria-live="polite"></div>
+
+        <div class="sugerencias" id="sugerencias">
+          <button type="button" data-frase="El ascensor está parado">El ascensor está parado</button>
+          <button type="button" data-frase="Hay una fuga de agua en el garaje">Fuga en el garaje</button>
+          <button type="button" data-frase="Soy del 3C de Madrid 2 y el ascensor no funciona">«3C de Madrid 2»</button>
+          <button type="button" data-frase="Hay una plaga de cucarachas en el portal">Caso sin protocolo</button>
+        </div>
+
+        <form class="chat-form" id="form-chat" autocomplete="off">
+          <input id="entrada" type="text" placeholder="Cuéntame qué ha pasado…" maxlength="500" required>
+          <button type="submit" id="btn-enviar" aria-label="Enviar">Enviar</button>
+        </form>
+      </div>
+    </div>
+
+    <aside class="col-ficha">
+      <div class="tarjeta protocolo" id="tarjeta-protocolo" hidden>
+        <p class="etiqueta-bloque">Protocolo aplicado</p>
+        <h3 id="prot-titulo"></h3>
+        <p class="cita" id="prot-cita"></p>
+
+        <dl class="datos">
+          <div><dt>Comunidad</dt><dd id="prot-comunidad"></dd></div>
+          <div><dt>Proveedor asignado</dt><dd id="prot-proveedor"></dd></div>
+          <div><dt>Teléfono</dt><dd id="prot-tel"></dd></div>
+          <div><dt>Urgencia</dt><dd id="prot-urgencia"></dd></div>
+        </dl>
+
+        <p class="etiqueta-bloque">Pasos del protocolo</p>
+        <ol class="pasos" id="prot-pasos"></ol>
+      </div>
+
+      <div class="tarjeta expediente" id="tarjeta-expediente" hidden>
+        <p class="etiqueta-bloque">Expediente abierto</p>
+        <p class="ref" id="exp-ref"></p>
+        <p class="exp-linea" id="exp-detalle"></p>
+        <p class="nota-sim">Aviso al proveedor simulado en esta demo.</p>
+      </div>
+
+      <div class="tarjeta vacia" id="tarjeta-vacia">
+        <p class="etiqueta-bloque">Protocolo aplicado</p>
+        <p class="pista">
+          Aquí aparecerá, en cuanto Nora consulte, de qué comunidad y de qué sección del
+          manual sale la decisión. Nada de lo que ves aquí lo escribe el modelo: sale de la
+          base de datos.
+        </p>
+      </div>
+    </aside>
+
+  </div>
+</section>
+
+<!-- ================================================================== -->
+<!-- VISTA 2 · PANEL DEL ADMINISTRADOR                                  -->
+<!-- ================================================================== -->
+<section id="vista-panel" class="vista" aria-label="Panel del administrador" hidden>
+
+  <div class="aviso-gobernanza">
+    <span class="aviso-icono" aria-hidden="true">⚖</span>
+    <p>
+      <strong>La IA prepara; el administrador decide.</strong>
+      La IA nunca adjudica ni emite sola: los presupuestos esperan aquí a que una persona
+      los apruebe o los rechace, y cada decisión queda en la auditoría.
+    </p>
+  </div>
+
+  <section class="bloque">
+    <div class="bloque-cabecera">
+      <h2>Cola de aprobación</h2>
+      <p class="bloque-sub">Presupuestos pendientes de decisión humana</p>
+    </div>
+    <div id="cola-aprobacion" class="cola"></div>
+  </section>
+
+  <section class="bloque">
+    <div class="bloque-cabecera">
+      <h2>Bandeja de expedientes</h2>
+      <p class="bloque-sub">
+        En tiempo real <span class="punto-vivo" id="punto-vivo" aria-hidden="true"></span>
+        <span id="estado-realtime">conectando…</span>
+      </p>
+    </div>
+    <div class="kanban" id="kanban"></div>
+  </section>
+
+</section>
+
+</main>
+
+<!-- Ficha de expediente -->
+<div class="velo" id="velo" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ficha-ref">
+    <button class="cerrar" id="cerrar-ficha" aria-label="Cerrar">×</button>
+    <div id="ficha-cuerpo"></div>
+  </div>
+</div>
+
+<footer class="pie">
+  <p>
+    Demo construida por <strong>WhiteMoon Agencia IA</strong> · Majadahonda, Madrid ·
+    <a href="https://whitemoon.es">whitemoon.es</a>
+  </p>
+  <p class="pie-tec">
+    Sin embeddings: los protocolos son datos estructurados por comunidad + búsqueda de texto
+    de Postgres. Claude clasifica y conversa; la base de datos decide.
+  </p>
+</footer>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>
