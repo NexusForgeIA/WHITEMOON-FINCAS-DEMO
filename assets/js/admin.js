@@ -35,6 +35,23 @@ const modalCuerpo = $("modal-cuerpo");
 const D = {
   comunidades: [], proveedores: [], expedientes: [],
   presupuestos: [], facturas: [], perfil: null,
+  borradores: [], plantillas: [], autonomia: null,
+};
+
+/* Los ocho trámites de la biblioteca. El orden es el del flujo real de un
+   expediente, que es como los busca quien trabaja con esto. */
+const TRAMITES = [
+  "solicitud_presupuesto", "recordatorio_presupuesto", "confirmacion_visita",
+  "adjudicacion", "solicitud_factura", "reclamacion_factura",
+  "aviso_propietario", "apertura_siniestro",
+];
+
+const ETIQUETA_DISCREPANCIA = {
+  totales_no_cuadran: "Los totales no cuadran",
+  factura_duplicada: "Factura duplicada",
+  sin_presupuesto_aprobado: "Sin presupuesto aprobado",
+  importe_distinto_presupuesto: "Importe distinto del presupuestado",
+  proveedor_no_coincide: "El proveedor no coincide",
 };
 
 let seccion = "expedientes";
@@ -98,7 +115,7 @@ async function perfilActivo() {
 /* ====================================================================== */
 
 async function cargaTodo() {
-  const [comus, provs, exps, pres, facs] = await Promise.all([
+  const [comus, provs, exps, pres, facs, borr, plan, auto] = await Promise.all([
     sb.from("fincas_comunidades").select("*").order("nombre"),
     sb.from("fincas_proveedores").select("*").order("nombre"),
     sb.from("fincas_expedientes")
@@ -108,11 +125,21 @@ async function cargaTodo() {
       .select("*, fincas_expedientes(ref, tipo, comunidad_id, estado)")
       .order("created_at", { ascending: false }),
     sb.from("fincas_facturas").select("*").order("created_at", { ascending: false }),
+    sb.from("fincas_comunicaciones")
+      .select("*, fincas_expedientes(ref)")
+      .eq("estado", "borrador")
+      .order("created_at", { ascending: false }),
+    sb.from("fincas_plantillas_email").select("*").order("tipo_tramite"),
+    sb.from("fincas_config_autonomia").select("*").is("comunidad_id", null).limit(1),
   ]);
 
-  for (const r of [comus, provs, exps, pres, facs]) {
+  for (const r of [comus, provs, exps, pres, facs, borr, plan, auto]) {
     if (r.error) console.warn("[crm] carga:", r.error.message);
   }
+
+  D.borradores = borr.data ?? [];
+  D.plantillas = plan.data ?? [];
+  D.autonomia = (auto.data ?? [])[0] ?? null;
 
   D.comunidades = comus.data ?? [];
   D.proveedores = provs.data ?? [];
@@ -123,6 +150,8 @@ async function cargaTodo() {
   $("c-expedientes").textContent = D.expedientes.filter((e) => e.estado !== "cerrado").length;
   $("c-presupuestos").textContent = D.presupuestos.filter((p) => p.estado === "pendiente").length;
   $("c-facturacion").textContent = D.facturas.filter((f) => f.estado === "borrador").length;
+  $("c-contable").textContent = D.facturas.filter((f) => f.estado === "revisar").length;
+  $("c-correos").textContent = D.borradores.length;
   $("c-comunidades").textContent = D.comunidades.length;
   $("c-proveedores").textContent = D.proveedores.length;
 }
@@ -1027,6 +1056,10 @@ function render() {
   if (seccion === "expedientes") return pintaExpedientes();
   if (seccion === "presupuestos") return pintaPresupuestos();
   if (seccion === "facturacion") return pintaFacturacion();
+  if (seccion === "contable") return pintaContable();
+  if (seccion === "correos") return pintaCorreos();
+  if (seccion === "plantillas") return pintaPlantillas();
+  if (seccion === "autonomia") return pintaAutonomia();
   if (seccion === "comunidades") return pintaComunidades();
   if (seccion === "proveedores") return pintaProveedores();
   if (seccion === "auditoria") return pintaAuditoria();
@@ -1080,6 +1113,19 @@ document.addEventListener("click", async (ev) => {
     await sb.from("fincas_documentos").delete().eq("id", bd.dataset.borraDoc);
     return pintaDetalleComunidad(comunidadAbierta);
   }
+
+  /* Correos en borrador y plantillas. */
+  const env = ev.target.closest("[data-enviar]");
+  if (env) return enviaBorrador(env.dataset.enviar);
+
+  const desc = ev.target.closest("[data-descartar]");
+  if (desc) return descartaBorrador(desc.dataset.descartar);
+
+  const gp = ev.target.closest("[data-guardar-plantilla]");
+  if (gp) return guardaPlantilla(gp.dataset.guardarPlantilla);
+
+  const ap = ev.target.closest("[data-activar-plantilla]");
+  if (ap) return alternaPlantilla(ap.dataset.activarPlantilla);
 });
 
 $("cerrar-modal").onclick = cierraModal;
@@ -1087,6 +1133,459 @@ velo.addEventListener("click", (ev) => { if (ev.target === velo) cierraModal(); 
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !velo.hidden) cierraModal(); });
 $("salir").onclick = salir;
 $("form-login").addEventListener("submit", entrar);
+
+
+/* ====================================================================== */
+/* SECCIÓN · CONTABLE IA                                                  */
+/* ====================================================================== */
+
+/**
+ * Las discrepancias son lo primero que tiene que ver quien abre esto. No
+ * son un detalle de la fila: son el motivo por el que la fila está ahí.
+ */
+function pintaDiscrepancias(f) {
+  const ds = Array.isArray(f.discrepancias) ? f.discrepancias : [];
+  if (!ds.length) return "";
+  return `<div class="discrepancias">
+    ${ds.map((d) => `<p class="discrepancia">
+        <span class="chip aviso">${esc(ETIQUETA_DISCREPANCIA[d.codigo] ?? d.codigo)}</span>
+        ${esc(d.detalle)}
+      </p>`).join("")}
+  </div>`;
+}
+
+function filaFacturaContable(f) {
+  const decidido = f.estado === "aprobada" || f.estado === "rechazada";
+  const pago = f.pago_propuesto && f.pago_propuesto.fecha_propuesta;
+  return `<article class="factura-card ${f.estado === "revisar" ? "revisar" : ""}">
+    <div class="factura-info">
+      <p class="fila-tit">
+        ${esc(f.numero || "sin número")} · ${esc(f.proveedor_nombre || "sin proveedor")}
+        <span class="chip ${f.estado === "revisar" ? "aviso" : f.estado === "aprobada" ? "ok" : "neutro"}">${esc(f.estado)}</span>
+      </p>
+      <p class="fila-sub">
+        ${esc(nombreComunidad(f.comunidad_id))}
+        ${f.fecha_factura ? " · " + esc(fecha(f.fecha_factura, false)) : ""}
+        ${f.origen === "contable-ia" ? " · leída por el Contable IA" : ""}
+        ${pago ? " · pago propuesto para el " + esc(fecha(f.pago_propuesto.fecha_propuesta, false)) : ""}
+      </p>
+      <p class="factura-cifras">
+        <span>Base <b>${esc(EUR.format(Number(f.base) || 0))}</b></span>
+        <span>IVA ${f.iva_porcentaje != null ? esc(f.iva_porcentaje) + "%" : ""}
+          <b>${esc(EUR.format(Number(f.iva_importe) || 0))}</b></span>
+        <span class="total">Total <b>${esc(EUR.format(Number(f.total ?? f.importe) || 0))}</b></span>
+      </p>
+      ${pintaDiscrepancias(f)}
+    </div>
+    <div class="fila-acc">
+      ${decidido
+        ? `<span class="chip ${f.estado === "aprobada" ? "ok" : "aviso"}">${esc(f.estado)}${f.decidido_por ? " · " + esc(f.decidido_por) : ""}</span>`
+        : `<button class="btn-mini ok" data-fac="${esc(f.id)}" data-dec="aprobada">Aprobar</button>
+           <button class="btn-mini no" data-fac="${esc(f.id)}" data-dec="rechazada">Rechazar</button>`}
+    </div>
+  </article>`;
+}
+
+/** Resumen por comunidad: lo que se le enseña al presidente en una junta. */
+function resumenPorComunidad() {
+  const porC = new Map();
+  for (const f of D.facturas) {
+    const k = f.comunidad_id;
+    if (!porC.has(k)) porC.set(k, { revisar: 0, borrador: 0, aprobada: 0, total: 0 });
+    const r = porC.get(k);
+    if (r[f.estado] !== undefined) r[f.estado]++;
+    if (f.estado === "aprobada") r.total += Number(f.total ?? f.importe) || 0;
+  }
+  if (!porC.size) return "";
+  return `<div class="caja">
+    <h3>Resumen por comunidad</h3>
+    <p class="sub">Facturas aprobadas y lo que queda pendiente de mirar.</p>
+    <div class="lista">
+      ${[...porC.entries()].map(([id, r]) => `
+        <div class="fila plano">
+          <div>
+            <p class="fila-tit">${esc(nombreComunidad(id))}</p>
+            <p class="fila-sub">
+              ${r.revisar} para revisar · ${r.borrador} en borrador · ${r.aprobada} aprobadas
+            </p>
+          </div>
+          <div class="fila-acc"><b>${esc(EUR.format(r.total))}</b></div>
+        </div>`).join("")}
+    </div>
+  </div>`;
+}
+
+/**
+ * Avisos de vencimiento. Dos cosas distintas y ambas importan: un pago
+ * propuesto cuya fecha ya pasó, y una factura que lleva demasiado tiempo
+ * esperando a que alguien la mire.
+ */
+function avisosVencimiento() {
+  const hoy = new Date().toISOString().slice(0, 10);
+  const limite = new Date(Date.now() - 15 * 864e5).toISOString();
+
+  const vencidas = D.facturas.filter((f) =>
+    f.estado !== "rechazada" && f.estado !== "aprobada" &&
+    f.pago_propuesto?.fecha_propuesta && f.pago_propuesto.fecha_propuesta < hoy);
+  const estancadas = D.facturas.filter((f) =>
+    (f.estado === "revisar" || f.estado === "borrador") && f.created_at < limite);
+
+  if (!vencidas.length && !estancadas.length) return "";
+  const linea = (f, aviso) => `<p class="discrepancia">
+      <span class="chip aviso">${esc(aviso)}</span>
+      ${esc(f.numero || "sin número")} · ${esc(f.proveedor_nombre)} ·
+      ${esc(EUR.format(Number(f.total ?? f.importe) || 0))} · ${esc(nombreComunidad(f.comunidad_id))}
+    </p>`;
+  return `<div class="aviso-linea ambar" style="display:block">
+    <p style="font-weight:600;margin-bottom:8px">Vencimientos y facturas paradas</p>
+    ${vencidas.map((f) => linea(f, "Pago propuesto vencido")).join("")}
+    ${estancadas.map((f) => linea(f, "Lleva más de 15 días sin decidir")).join("")}
+  </div>`;
+}
+
+function pintaContable() {
+  const facturas = D.facturas.filter((f) => f.tipo === "factura");
+  const paraRevisar = facturas.filter((f) => f.estado === "revisar");
+  const resto = facturas.filter((f) => f.estado !== "revisar");
+
+  const asistente = `<div class="caja">
+    <h3>Asistente contable</h3>
+    <p class="sub">
+      Pega el texto de una factura y la lee, la cuadra y la coteja con el presupuesto.
+      No aprueba, no paga y no ve datos bancarios.
+    </p>
+    <div class="campo">
+      <label for="ct-texto">Texto de la factura</label>
+      <textarea id="ct-texto" style="min-height:120px"
+        placeholder="Factura A-2026-118, fecha 12/03/2026, Ascensores Delta, base imponible 700,00 €, IVA 21% 147,00 €, total 847,00 €. Expediente EXP-2026-0001."></textarea>
+    </div>
+    <div class="acciones-form">
+      <button class="btn btn-p" id="ct-enviar">Analizar</button>
+    </div>
+    <div id="ct-respuesta"></div>
+  </div>`;
+
+  panel.innerHTML =
+    cabecera("Contable IA", "Facturas de proveedores: leídas, cuadradas y cotejadas.") +
+    `<div class="aviso-linea verde">
+       <span aria-hidden="true">🧮</span>
+       <p><b>La aritmética la hace el código, no el modelo.</b> El Contable IA lee la
+       factura, pero base + IVA = total lo comprueba TypeScript. Si no cuadra, la
+       factura queda en <em>revisar</em> y salta el aviso.</p>
+     </div>` +
+    avisosVencimiento() +
+    asistente +
+    (paraRevisar.length
+      ? `<h3 style="font-size:15px;font-weight:600;margin:24px 0 10px">
+           Para revisar <span class="chip aviso">${paraRevisar.length}</span></h3>
+         <div class="lista">${paraRevisar.map(filaFacturaContable).join("")}</div>`
+      : "") +
+    (resto.length
+      ? `<h3 style="font-size:15px;font-weight:600;margin:24px 0 10px">Resto de facturas</h3>
+         <div class="lista">${resto.map(filaFacturaContable).join("")}</div>`
+      : "") +
+    (facturas.length ? "" : `
+      <div class="vacio">
+        <strong>Aún no hay facturas</strong>
+        <p>Pega arriba el texto de una factura de proveedor y el Contable IA la
+        dará de alta. Si algo no cuadra con el presupuesto aprobado del
+        expediente, la dejará marcada para revisar en vez de darla por buena.</p>
+      </div>`) +
+    resumenPorComunidad();
+
+  $("ct-enviar").onclick = hablaConContable;
+}
+
+async function hablaConContable() {
+  const salida = $("ct-respuesta");
+  const texto = $("ct-texto").value.trim();
+  if (!texto) return alert("Pega el texto de la factura.");
+
+  const btn = $("ct-enviar");
+  btn.disabled = true;
+  btn.textContent = "Analizando…";
+  salida.innerHTML = '<p class="cargando">El Contable IA está leyendo la factura…</p>';
+
+  /* Se le da el catálogo de comunidades y expedientes abiertos para que
+     pueda resolver referencias sin adivinar. */
+  const contexto = [
+    "Comunidades dadas de alta (usa el id exacto):",
+    ...D.comunidades.map((c) => `- ${c.nombre} (${c.direccion}) -> comunidad_id ${c.id}`),
+    "",
+    "Expedientes abiertos:",
+    ...D.expedientes.filter((e) => e.estado !== "cerrado")
+      .map((e) => `- ${e.ref} · ${nombreComunidad(e.comunidad_id)} · proveedor ${e.proveedor_nombre || "—"} -> expediente_id ${e.id}`),
+  ].join("\n");
+
+  let html = "";
+  try {
+    const r = await fetch(FN("fincas-contable"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${await jwt()}` },
+      body: JSON.stringify({ mensaje: `${contexto}\n\nFACTURA A PROCESAR:\n${texto}` }),
+    }).then((x) => x.json());
+
+    html = r?.reply
+      ? `<div class="ficha-desc" style="margin-top:14px">${esc(r.reply)}</div>`
+      : `<p class="tl-err">${esc(r?.error ?? "No se ha podido analizar.")}</p>`;
+  } catch (e) {
+    console.warn("[crm] contable:", e);
+    html = '<p class="tl-err">No se ha podido conectar con el Contable IA.</p>';
+  }
+
+  await cargaTodo();
+  if (seccion === "contable") {
+    pintaContable();
+    $("ct-respuesta").innerHTML = html;
+  }
+}
+
+/* ====================================================================== */
+/* SECCIÓN · CORREOS EN BORRADOR                                          */
+/* ====================================================================== */
+
+function pintaCorreos() {
+  const cab = cabecera("Correos",
+    "Los que el agente ha dejado preparados porque no podía mandarlos solo.");
+
+  const aviso = `<div class="aviso-linea verde">
+    <span aria-hidden="true">✉</span>
+    <p><b>Un correo llega aquí por tres motivos:</b> el trámite implica dinero o es
+    legal, falta algún dato por rellenar, o no hay destinatario. El motivo concreto
+    va escrito en cada uno.</p>
+  </div>`;
+
+  if (!D.borradores.length) {
+    panel.innerHTML = cab + aviso + `
+      <div class="vacio">
+        <strong>No hay correos esperando</strong>
+        <p>Cuando el agente prepare un correo que no puede mandar solo, aparecerá
+        aquí con su motivo, listo para revisar y enviar.</p>
+      </div>`;
+    return;
+  }
+
+  panel.innerHTML = cab + aviso + `<div class="lista">${D.borradores.map((c) => {
+    const d = c.decision ?? {};
+    return `<article class="factura-card">
+      <div class="factura-info">
+        <p class="fila-tit">${esc(c.asunto)}</p>
+        <p class="fila-sub">
+          ${esc(c.fincas_expedientes?.ref ?? "sin expediente")} ·
+          ${esc(humaniza(c.tramite))} · para ${esc(c.para_email || "sin destinatario")} ·
+          ${esc(fecha(c.created_at))}
+        </p>
+        <p class="discrepancia" style="margin-top:8px">
+          <span class="chip aviso">${esc(d.categoria ?? "revisión")}</span>${esc(c.error)}
+        </p>
+        <details style="margin-top:10px">
+          <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">Ver el correo</summary>
+          <div class="tl-txt" style="max-height:none">${esc(c.cuerpo)}</div>
+        </details>
+      </div>
+      <div class="fila-acc">
+        <button class="btn-mini ok" data-enviar="${esc(c.id)}"
+          ${c.para_email ? "" : "disabled"}>Aprobar y enviar</button>
+        <button class="btn-mini no" data-descartar="${esc(c.id)}">Descartar</button>
+      </div>
+    </article>`;
+  }).join("")}</div>`;
+}
+
+async function enviaBorrador(id) {
+  if (!confirm("¿Aprobar y enviar este correo?")) return;
+  const r = await fetch(FN("fincas-enviar-email"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${await jwt()}` },
+    body: JSON.stringify({ accion: "enviar_borrador", comunicacion_id: id }),
+  }).then((x) => x.json()).catch(() => null);
+
+  if (!r?.ok) alert("No se ha podido enviar: " + (r?.error ?? "error desconocido"));
+  await cargaTodo();
+  render();
+}
+
+async function descartaBorrador(id) {
+  if (!confirm("¿Descartar este borrador? Queda registrado como fallido, no se borra.")) return;
+  const { error } = await sb.from("fincas_comunicaciones")
+    .update({ estado: "fallido", error: "Descartado por el equipo.", aprobado_por: D.perfil?.email ?? "" })
+    .eq("id", id).eq("estado", "borrador");
+  if (error) return alert("No se ha podido descartar: " + error.message);
+  await cargaTodo();
+  render();
+}
+
+/* ====================================================================== */
+/* SECCIÓN · PLANTILLAS DE CORREO                                         */
+/* ====================================================================== */
+
+function pintaPlantillas() {
+  const cab = cabecera("Plantillas de correo",
+    "Lo que el agente manda de verdad. El texto lo escribes tú; él sólo elige cuál toca.");
+
+  const aviso = `<div class="aviso-linea verde">
+    <span aria-hidden="true">📝</span>
+    <p><b>Las {{variables}} las rellena el código</b>, no el modelo, con datos del
+    expediente. Si alguna se queda vacía el correo no sale solo: pasa a borrador.
+    Disponibles: ref, comunidad, direccion, puerta, propietario, tipo, subtipo,
+    urgencia, descripcion, proveedor, solicitante, solicitante_tel, importe,
+    numero_factura, fecha, administracion.</p>
+  </div>`;
+
+  if (!D.plantillas.length) {
+    panel.innerHTML = cab + aviso +
+      '<div class="vacio"><strong>No hay plantillas</strong><p>Algo ha ido mal en la carga: la biblioteca base debería traer ocho.</p></div>';
+    return;
+  }
+
+  panel.innerHTML = cab + aviso + D.plantillas.map((p) => `
+    <div class="caja" data-plantilla="${esc(p.id)}">
+      <h3>${esc(humaniza(p.tipo_tramite))}
+        <span class="chip ${p.categoria === "operativo" ? "ok" : "aviso"}">${esc(p.categoria)}</span>
+        ${p.activa ? "" : '<span class="chip neutro">desactivada</span>'}
+      </h3>
+      <p class="sub">
+        ${p.categoria === "operativo"
+          ? "Puede salir solo si no lleva importe."
+          : "Siempre pasa por revisión, salvo que se marque de confianza y quede bajo el umbral."}
+      </p>
+      <div class="rejilla">
+        <div class="campo ancho">
+          <label>Asunto</label>
+          <input type="text" class="pl-asunto" value="${esc(p.asunto)}" maxlength="200">
+        </div>
+        <div class="campo ancho">
+          <label>Cuerpo</label>
+          <textarea class="pl-cuerpo" style="min-height:190px">${esc(p.cuerpo)}</textarea>
+        </div>
+        <div class="campo">
+          <label>Categoría</label>
+          <select class="pl-categoria">
+            ${["operativo", "dinero", "legal"].map((c) =>
+              `<option value="${c}"${c === p.categoria ? " selected" : ""}>${c}</option>`).join("")}
+          </select>
+        </div>
+        <div class="campo">
+          <label>Tono</label>
+          <input type="text" class="pl-tono" value="${esc(p.tono)}" maxlength="40">
+        </div>
+      </div>
+      <div class="acciones-form">
+        <button class="btn-mini ok" data-guardar-plantilla="${esc(p.id)}">Guardar</button>
+        <button class="btn-mini" data-activar-plantilla="${esc(p.id)}">
+          ${p.activa ? "Desactivar" : "Activar"}
+        </button>
+      </div>
+    </div>`).join("");
+}
+
+async function guardaPlantilla(id) {
+  const caja = panel.querySelector(`[data-plantilla="${CSS.escape(id)}"]`);
+  if (!caja) return;
+  const { error } = await sb.from("fincas_plantillas_email").update({
+    asunto: caja.querySelector(".pl-asunto").value.trim(),
+    cuerpo: caja.querySelector(".pl-cuerpo").value,
+    categoria: caja.querySelector(".pl-categoria").value,
+    tono: caja.querySelector(".pl-tono").value.trim(),
+    updated_at: new Date().toISOString(),
+  }).eq("id", id);
+  if (error) return alert("No se ha podido guardar: " + error.message);
+  await cargaTodo();
+  render();
+}
+
+async function alternaPlantilla(id) {
+  const p = D.plantillas.find((x) => x.id === id);
+  if (!p) return;
+  const { error } = await sb.from("fincas_plantillas_email")
+    .update({ activa: !p.activa }).eq("id", id);
+  if (error) return alert("No se ha podido cambiar: " + error.message);
+  await cargaTodo();
+  render();
+}
+
+/* ====================================================================== */
+/* SECCIÓN · AUTONOMÍA                                                    */
+/* ====================================================================== */
+
+function pintaAutonomia() {
+  const cfg = D.autonomia ?? { umbral_auto_eur: 0, tramites_confianza: [], notas: "" };
+  const confianza = Array.isArray(cfg.tramites_confianza) ? cfg.tramites_confianza : [];
+
+  panel.innerHTML =
+    cabecera("Autonomía", "Hasta dónde puede llegar el agente solo. Todo lo demás pasa por una persona.") + `
+    <div class="aviso-linea verde" style="display:block">
+      <p style="font-weight:600;margin-bottom:8px">La regla, tal cual está en el código</p>
+      <ol style="margin:0;padding-left:20px;font-size:12.5px;line-height:1.8">
+        <li>Trámite <b>operativo</b> y sin importe → <b>va solo</b>.</li>
+        <li>Trámite de <b>dinero</b> o <b>legal</b> → <b>lo aprueba una persona</b>.</li>
+        <li>…salvo que esté marcado <b>de confianza</b> Y el importe quede <b>por debajo</b>
+            del umbral → entonces va solo.</li>
+        <li>Cualquier otro caso —trámite desconocido, importe que falta— →
+            <b>lo aprueba una persona</b>. Falla cerrada a propósito.</li>
+      </ol>
+      <p style="margin-top:10px;font-size:12.5px">
+        Esto lo decide fincas_decidir_autonomia(), una función SQL. No está en el
+        prompt del agente: se le consulta y se le obedece.
+      </p>
+    </div>
+
+    <div class="caja">
+      <h3>Configuración global</h3>
+      <p class="sub">Vale para todas las comunidades mientras no haya un ajuste propio.</p>
+      <div class="rejilla">
+        <div class="campo">
+          <label for="au-umbral">Umbral automático (€)</label>
+          <input id="au-umbral" type="number" min="0" step="10" value="${esc(cfg.umbral_auto_eur ?? 0)}">
+          <span class="ayuda">Por debajo de esta cifra, y sólo para trámites de confianza, el agente puede actuar solo. Con 0 no se automatiza nada que lleve dinero.</span>
+        </div>
+        <div class="campo">
+          <label for="au-notas">Notas</label>
+          <input id="au-notas" type="text" maxlength="200" value="${esc(cfg.notas ?? "")}">
+        </div>
+        <div class="campo ancho">
+          <label>Trámites de confianza</label>
+          <div class="tramites">
+            ${TRAMITES.map((t) => {
+              const p = D.plantillas.find((x) => x.tipo_tramite === t && !x.comunidad_id);
+              const cat = p?.categoria ?? "operativo";
+              return `<label class="tramite">
+                <input type="checkbox" class="au-tramite" value="${esc(t)}"
+                  ${confianza.includes(t) ? "checked" : ""}>
+                <span>${esc(humaniza(t))}</span>
+                <span class="chip ${cat === "operativo" ? "ok" : "aviso"}">${esc(cat)}</span>
+              </label>`;
+            }).join("")}
+          </div>
+          <span class="ayuda">Marcar uno operativo no cambia nada: ya va solo si no lleva importe. Sirve para los de dinero o legales.</span>
+        </div>
+      </div>
+      <div class="acciones-form">
+        <button class="btn btn-p" id="au-guardar">Guardar configuración</button>
+      </div>
+    </div>`;
+
+  $("au-guardar").onclick = guardaAutonomia;
+}
+
+async function guardaAutonomia() {
+  const tramites = [...panel.querySelectorAll(".au-tramite:checked")].map((i) => i.value);
+  const patch = {
+    umbral_auto_eur: Number($("au-umbral").value) || 0,
+    tramites_confianza: tramites,
+    notas: $("au-notas").value.trim(),
+    actualizado_at: new Date().toISOString(),
+    actualizado_por: D.perfil?.email ?? "administrador",
+  };
+
+  const { error } = D.autonomia
+    ? await sb.from("fincas_config_autonomia").update(patch).eq("id", D.autonomia.id)
+    : await sb.from("fincas_config_autonomia").insert({ ...patch, comunidad_id: null });
+
+  if (error) return alert("No se ha podido guardar: " + error.message);
+  await cargaTodo();
+  render();
+}
 
 /* ====================================================================== */
 /* ARRANQUE                                                               */

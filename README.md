@@ -99,6 +99,69 @@ vez de inventarlo**.
 
 ---
 
+## Autonomía por niveles
+
+Hasta dónde llega el agente solo no lo decide su prompt: lo decide
+`fincas_decidir_autonomia()`, una función SQL a la que se le pregunta y se le
+obedece.
+
+| Situación | Qué pasa |
+|---|---|
+| Trámite **operativo** sin importe | va solo |
+| Trámite de **dinero** o **legal** | lo aprueba una persona |
+| …marcado **de confianza** y por **debajo** del umbral | va solo |
+| Trámite desconocido, importe que falta, cualquier duda | lo aprueba una persona |
+
+Falla cerrada a propósito, y arranca cerrada del todo: umbral 0 € y ningún
+trámite de confianza. Que la máquina gaste dinero sola tiene que ser una
+decisión explícita, no el valor por defecto. Se configura en **CRM →
+Autonomía**, global o por comunidad.
+
+El **importe no lo pone quien llama**: se deriva de la factura o del
+presupuesto aprobado, y sólo para los trámites que comprometen dinero. Si
+viniera en la petición, bastaría con mandar `importe: 1` para colar una
+adjudicación por debajo del umbral.
+
+---
+
+## Biblioteca de correos por trámite
+
+Ocho plantillas editables en **CRM → Plantillas**. El agente elige *cuál*
+toca; el texto lo escribió una persona y las `{{variables}}` las rellena el
+código con datos del expediente.
+
+| Trámite | Categoría |
+|---|---|
+| `solicitud_presupuesto` · `recordatorio_presupuesto` · `confirmacion_visita` · `solicitud_factura` · `aviso_propietario` | operativo |
+| `adjudicacion` · `reclamacion_factura` | dinero |
+| `apertura_siniestro` | legal |
+
+Si alguna variable se queda vacía, **el correo no sale aunque el motor dijera
+que sí**: pasa a borrador. Un correo con un hueco donde debería ir el nombre
+del proveedor es peor que no mandar nada. Los borradores esperan en
+**CRM → Correos**, cada uno con el motivo escrito.
+
+---
+
+## Contable IA
+
+`fincas-contable` lee facturas de proveedor, las cuadra y las coteja. Cinco
+herramientas y ninguna más:
+
+| Herramienta | Qué hace |
+|---|---|
+| `comprobar_totales` | **la aritmética, en TypeScript**: base + IVA = total |
+| `extraer_factura` | guarda lo leído, en `revisar` o `borrador`, nunca aprobada |
+| `cotejar_con_presupuesto` | marca duplicados, sin presupuesto, importe distinto, proveedor que no coincide |
+| `preparar_borrador_pago` | deja una **propuesta** en la cola; no paga |
+| `generar_certificado_deuda` | borrador; no se emite |
+
+El modelo **lee**; el modelo **no calcula**. Si escribe un total, se ignora:
+vale el que sale de `compruebaTotales()`. Los modelos fallan sumando, y una
+factura mal cuadrada que pasa por buena es dinero que sale mal.
+
+---
+
 ## Sin embeddings
 
 El "RAG" son dos cosas, ninguna vectorial:
@@ -175,10 +238,28 @@ inventado.
 
 ### Nada se emite solo
 
-Presupuestos y facturas nacen en `pendiente` / `borrador`. La decisión la toma
-una persona desde el CRM, con su email en el registro. El `UPDATE` lleva el
-estado de origen en el filtro, así que dos personas decidiendo a la vez no se
-pisan.
+Presupuestos, facturas y certificados nacen en `pendiente` / `borrador` /
+`revisar`. La decisión la toma una persona desde el CRM, con su email en el
+registro. El `UPDATE` lleva el estado de origen en el filtro, así que dos
+personas decidiendo a la vez no se pisan.
+
+### Las cinco barreras del dinero
+
+1. **Dinero → cola.** Ningún trámite de categoría `dinero` o `legal` sale solo
+   salvo que esté marcado de confianza y quede bajo el umbral. Lo decide una
+   función SQL, no el prompt.
+2. **Cálculo determinista en código.** `compruebaTotales()` en TypeScript. El
+   total que se guarda es el calculado, nunca el que escriba el modelo.
+3. **Sin herramienta de IBAN.** El Contable IA tiene cinco herramientas y
+   ninguna toca datos bancarios. `fincas_privado` no está en su lista blanca de
+   rutas, y tampoco hay ninguna que ejecute un pago: no existe integración
+   bancaria en el proyecto.
+4. **Auditoría append-only.** Cada acción —automática o aprobada— queda con su
+   actor: el email de la persona, `agente-ia` o `servicio`. `UPDATE`, `DELETE`
+   y `TRUNCATE` bloqueados por trigger.
+5. **"Revisar" y escalar si no cuadra.** Una discrepancia deja la factura en
+   `revisar` y dispara el aviso a Telegram. No se rellena a ojo ni se da nada
+   por bueno.
 
 ---
 
@@ -220,7 +301,9 @@ supabase/functions/         Edge Functions
 | `fincas_expedientes` | incidencias, `ref` EXP-AAAA-NNNN |
 | `fincas_comunicaciones` | timeline de correos enviados y recibidos |
 | `fincas_presupuestos` | bandeja + cola de aprobación |
-| `fincas_facturas` | facturas y certificados de deuda, en borrador |
+| `fincas_facturas` | facturas y certificados: base, IVA, total, discrepancias y propuesta de pago |
+| `fincas_plantillas_email` | biblioteca de correos por trámite, con `{{variables}}` |
+| `fincas_config_autonomia` | umbral € y trámites de confianza, global o por comunidad |
 | `fincas_auditoria` | append-only; distingue persona, `agente-ia` y `servicio` |
 | `fincas_privado.datos_comunidad` | **IBAN y presidente — esquema no expuesto** |
 
@@ -232,6 +315,7 @@ supabase/functions/         Edge Functions
 | `fincas-enviar-email` | petición de presupuesto vía Resend | service key interna o JWT de staff |
 | `fincas-inbound` | recibe la respuesta del proveedor | token compartido |
 | `fincas-notify` | avisos por Telegram | pública, no lee datos |
+| `fincas-contable` | el Contable IA: leer, cuadrar y cotejar facturas | JWT de staff |
 | `fincas-privado` | IBAN y presidente | JWT de staff, y sólo eso |
 | `fincas-presupuesto` | **retirada** — devuelve 410 | — |
 
