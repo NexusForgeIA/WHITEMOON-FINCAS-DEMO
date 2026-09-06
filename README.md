@@ -299,11 +299,25 @@ personas decidiendo a la vez no se pisan.
 
 ---
 
-## Integrador simulado
+## Sistema de gestión propio
 
-**NetFincas** es lo único simulado, y se etiqueta donde aparece: en la web y
-en el system prompt del agente, que lo dice si le preguntan. El correo, los
-expedientes, los presupuestos y la facturación son reales.
+**Sistema de gestión integral propio con IA. Sin dependencia de ERP externo.**
+
+Comunidades, propietarios, protocolos, expedientes, proveedores,
+comunicaciones, presupuestos y facturación viven aquí, en este sistema. No hay
+un software de terceros por debajo del que dependa nada ni al que haya que
+sincronizar: la base de datos de la administración es esta.
+
+Eso no es una limitación, es la razón de que el agente pueda hacer lo que hace.
+Aplicar el protocolo de *esa* comunidad, citar el documento del que sale la
+respuesta o cotejar una factura con su presupuesto exige leer y escribir en el
+mismo sitio, con el mismo modelo de datos y con las mismas reglas de acceso.
+Con un ERP externo por medio, la mitad de esas operaciones serían una
+importación nocturna.
+
+> **Integración con ERP de terceros:** disponible bajo proyecto si el cliente
+> ya trabaja con uno y quiere conservarlo. No forma parte del producto ni se
+> presupone en ninguna parte del sistema; se estudia y se cotiza aparte.
 
 ---
 

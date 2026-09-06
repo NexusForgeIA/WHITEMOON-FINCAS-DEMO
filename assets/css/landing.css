@@ -379,36 +379,6 @@
 .datocard dt { font-size: 11.5px; color: var(--muted); }
 .datocard dd { margin: 0; font-size: 12.5px; font-weight: 500; }
 
-/* ------------------------------------------------------- aviso simulado */
-
-.simulado {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  padding: 15px 18px;
-  border: 1px solid rgba(255, 162, 62, .3);
-  border-left: 3px solid var(--alta);
-  border-radius: var(--radio);
-  background: rgba(255, 162, 62, .05);
-  font-size: 13px;
-  color: #d5d5e4;
-}
-.simulado b { color: var(--alta); }
-
-.confianza {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  padding: 15px 18px;
-  border: 1px solid rgba(0, 212, 170, .3);
-  border-left: 3px solid var(--g);
-  border-radius: var(--radio);
-  background: rgba(0, 212, 170, .05);
-  font-size: 13px;
-  color: #d5d5e4;
-}
-.confianza b { color: var(--g); }
-
 /* -------------------------------------------------------------- pie */
 
 .pie {
