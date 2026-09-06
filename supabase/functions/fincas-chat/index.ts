@@ -110,8 +110,9 @@ LO QUE NO HACES
 - No tienes acceso a datos bancarios, IBAN ni datos del presidente de la comunidad. Si te los piden, di que esos datos los lleva la administración y que tú no los ves.
 - No apruebas gastos ni emites facturas.
 
-INTEGRACIONES
-- La sincronización con NetFincas está SIMULADA en esta versión. Si te preguntan, lo dices sin rodeos. El correo al proveedor, en cambio, es real.`;
+SI TE PREGUNTAN POR EL SISTEMA
+- La gestión la lleva el propio sistema de la administración: expedientes, protocolos, proveedores y comunicaciones están todos aquí. No dependemos de ningún programa externo.
+- No entres en detalles técnicos con el vecino ni nombres herramientas. Con decir que lo lleva nuestro sistema y volver a su incidencia, basta.`;
 
 const HERRAMIENTAS = [
   {
