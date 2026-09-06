@@ -43,7 +43,13 @@ const CORS = {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function db(path: string, init: RequestInit = {}): Promise<any> {
+/**
+ * `actor` viaja como cabecera para que la auditoría sepa quién escribe: el
+ * agente cuando el envío lo dispara la conversación, y nadie (=> 'servicio')
+ * cuando lo dispara el administrador desde el CRM. No se pasa el email del
+ * admin porque estas escrituras las hace la función con service role, no él.
+ */
+async function db(path: string, init: RequestInit = {}, actor = ""): Promise<any> {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...init,
     headers: {
@@ -51,6 +57,7 @@ async function db(path: string, init: RequestInit = {}): Promise<any> {
       Authorization: `Bearer ${SERVICE_KEY}`,
       "Content-Type": "application/json",
       Prefer: "return=representation",
+      ...(actor ? { "x-fincas-actor": actor } : {}),
       ...((init.headers ?? {}) as Record<string, string>),
     },
   });
@@ -62,21 +69,27 @@ async function db(path: string, init: RequestInit = {}): Promise<any> {
   return t ? JSON.parse(t) : null;
 }
 
-/** ¿Quien llama tiene derecho a mandar correo desde nuestro dominio? */
-async function autorizado(req: Request): Promise<boolean> {
-  if (req.headers.get("x-fincas-internal") === SERVICE_KEY && SERVICE_KEY) return true;
+/**
+ * ¿Quien llama tiene derecho a mandar correo desde nuestro dominio?
+ * Devuelve además QUIÉN es, porque de eso depende cómo firma la auditoría:
+ *   "agente"  la conversación, vía fincas-chat (cabecera interna)
+ *   "staff"   un administrador reenviando desde el CRM (su JWT)
+ *   null      nadie: se rechaza
+ */
+async function autorizado(req: Request): Promise<"agente" | "staff" | null> {
+  if (req.headers.get("x-fincas-internal") === SERVICE_KEY && SERVICE_KEY) return "agente";
 
   const auth = req.headers.get("Authorization") ?? "";
   const jwt = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!jwt || jwt === SERVICE_KEY) return false;
+  if (!jwt || jwt === SERVICE_KEY) return null;
 
   const u = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
     headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${jwt}` },
   }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  if (!u?.id) return false;
+  if (!u?.id) return null;
 
   const perfil = await db(`fincas_perfiles?user_id=eq.${u.id}&activo=is.true&select=user_id`);
-  return Array.isArray(perfil) && perfil.length > 0;
+  return Array.isArray(perfil) && perfil.length ? "staff" : null;
 }
 
 const esc = (s: unknown) =>
@@ -123,7 +136,10 @@ Deno.serve(async (req: Request) => {
     });
 
   if (!SUPABASE_URL || !SERVICE_KEY) return json({ ok: false, error: "servicio no configurado" }, 500);
-  if (!(await autorizado(req))) return json({ ok: false, error: "no autorizado" }, 401);
+
+  const quien = await autorizado(req);
+  if (!quien) return json({ ok: false, error: "no autorizado" }, 401);
+  const actor = quien === "agente" ? "agente-ia" : "";
 
   try {
     const cuerpo = await req.json().catch(() => ({}));
@@ -164,7 +180,7 @@ Deno.serve(async (req: Request) => {
           cuerpo: `Petición de presupuesto a ${exp.proveedor_nombre ?? "proveedor"}.`,
           proveedor_id: prov?.id ?? null, error,
         }),
-      });
+      }, actor);
 
     if (!prov) {
       await anota("fallido", `El proveedor "${exp.proveedor_nombre ?? ""}" no está dado de alta o está inactivo.`);
@@ -206,7 +222,7 @@ Deno.serve(async (req: Request) => {
     await db(`fincas_expedientes?id=eq.${exp.id}`, {
       method: "PATCH", headers: { Prefer: "return=minimal" },
       body: JSON.stringify({ estado: "asignado", proveedor_avisado_at: new Date().toISOString() }),
-    });
+    }, actor);
 
     return json({ ok: true, ref: exp.ref, para, asunto });
   } catch (e) {

@@ -21,7 +21,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
    LOS DATOS BANCARIOS NO ESTÁN A SU ALCANCE
    Tres cosas, no una:
      a) IBAN y presidente viven en el esquema `fincas_privado`, que
-        PostgREST no expone. No hay URL que los devuelva.
+        PostgREST no expone y que además lleva RLS activada sin políticas.
      b) Nora no tiene ninguna herramienta que los mencione.
      c) El cliente de base de datos de ESTA función lleva una LISTA BLANCA
         (TABLAS_PERMITIDAS / RPC_PERMITIDAS). Cualquier ruta que no esté en
@@ -260,6 +260,11 @@ async function db(path: string, init: RequestInit = {}): Promise<any> {
       Authorization: `Bearer ${SERVICE_KEY}`,
       "Content-Type": "application/json",
       Prefer: "return=representation",
+      // Firma de quien escribe. PostgREST la publica en el GUC
+      // request.headers y fincas_actor() la lee, de modo que en la auditoría
+      // lo que abre el agente aparece como 'agente-ia' y no confundido con
+      // el resto de procesos backend.
+      "x-fincas-actor": "agente-ia",
       ...((init.headers ?? {}) as Record<string, string>),
     },
   });
