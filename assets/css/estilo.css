@@ -35,6 +35,13 @@
 
 * { box-sizing: border-box; }
 
+/* El atributo `hidden` tiene que ganar SIEMPRE. Sin esto, cualquier regla de
+   clase que fije un display (por ejemplo `.velo { display: grid }`) pisa el
+   `display: none` que el navegador aplica a [hidden], y el elemento se ve
+   aunque el HTML lo declare oculto: la ficha de expediente aparecía abierta
+   nada más cargar la página, tapándolo todo. */
+[hidden] { display: none !important; }
+
 html { scroll-behavior: smooth; }
 
 body {
