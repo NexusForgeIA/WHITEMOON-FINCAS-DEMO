@@ -125,7 +125,7 @@
 .rota {
   display: inline-block;
   position: relative;
-  height: 1.06em;
+  height: 1.08em;
   overflow: hidden;
   vertical-align: bottom;
   color: var(--g);
@@ -135,12 +135,18 @@
   display: block;
   animation: rotar 10.5s cubic-bezier(.7, 0, .3, 1) infinite;
 }
+/* El bloque interior tiene 5 líneas, así que una línea es el 20% de su
+   altura, no el 100%. Con pasos de 100% el titular se quedaba en blanco. */
 @keyframes rotar {
   0%, 22%    { transform: translateY(0); }
-  25%, 47%   { transform: translateY(-100%); }
-  50%, 72%   { transform: translateY(-200%); }
-  75%, 97%   { transform: translateY(-300%); }
-  100%       { transform: translateY(-400%); }
+  25%, 47%   { transform: translateY(-20%); }
+  50%, 72%   { transform: translateY(-40%); }
+  75%, 97%   { transform: translateY(-60%); }
+  100%       { transform: translateY(-80%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rota span { animation: none; }
 }
 
 .hero-sub {
@@ -198,22 +204,60 @@
    que no queremos. */
 .servicio {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   gap: 34px;
   align-items: start;
   padding: 34px 0;
   border-top: 1px solid var(--linea);
 }
 .servicio:last-child { border-bottom: 1px solid var(--linea); }
-.servicio:nth-child(even) { padding-left: 12%; }
+.servicio:nth-child(even) {
+  padding-left: 12%;
+  grid-template-columns: minmax(0, 1fr) 220px;
+}
+/* La foto salta al lado contrario en las filas pares: es la misma
+   asimetría que ya hacía el sangrado, ahora también en la imagen. */
+.servicio:nth-child(even) .servicio-media { order: 2; }
+
+/* La foto va en clave dark: gris de base y un velo púrpura encima, para
+   que no meta color ajeno al sistema. El número se apoya sobre ella. */
+.servicio-media {
+  position: relative;
+  border: 1px solid var(--linea);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--sup-1);
+}
+.servicio-media img {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: grayscale(1) brightness(.72) contrast(1.05);
+}
+.servicio-media::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  /* El velo de abajo no es decorativo: sin él el número se pierde sobre
+     las fotos claras, como la del ascensor. */
+  background:
+    linear-gradient(to top, rgba(8, 8, 13, .8), rgba(8, 8, 13, 0) 58%),
+    linear-gradient(140deg, rgba(124, 77, 255, .35), rgba(8, 8, 13, .78));
+  pointer-events: none;
+}
 
 .servicio-num {
+  position: absolute;
+  left: 12px;
+  bottom: 2px;
+  z-index: 2;
   font-size: 88px;
   font-weight: 700;
   letter-spacing: -.06em;
   line-height: .8;
   color: transparent;
-  -webkit-text-stroke: 1px var(--linea-2);
+  -webkit-text-stroke: 1.5px rgba(240, 240, 245, .78);
+  text-shadow: 0 2px 18px rgba(8, 8, 13, .9);
   transition: -webkit-text-stroke-color .3s ease, color .3s ease;
 }
 .servicio:hover .servicio-num { -webkit-text-stroke-color: var(--p); }
@@ -408,6 +452,15 @@
   .servicio:nth-child(even) { padding-left: 0; }
 }
 
+@media (max-width: 900px) {
+  /* En una sola columna la asimetría ya no se sostiene: la foto sube a
+     ancho completo y se recorta, en vez de quedarse como un icono. */
+  .servicio,
+  .servicio:nth-child(even) { grid-template-columns: 1fr; gap: 18px; }
+  .servicio:nth-child(even) .servicio-media { order: 0; }
+  .servicio-media img { height: 180px; object-fit: cover; }
+}
+
 @media (max-width: 680px) {
   .wrap, .hero-in, .stats, .pie-in { padding-left: 18px; padding-right: 18px; }
   .cab-in { padding: 12px 18px; }
@@ -416,7 +469,8 @@
   .hero { padding: 46px 0 60px; }
   .seccion { padding: 64px 0; }
   .stats-in { grid-template-columns: 1fr; }
-  .servicio { grid-template-columns: 1fr; gap: 12px; }
+  .servicio,
+  .servicio:nth-child(even) { gap: 12px; }
   .servicio-num { font-size: 60px; }
   .fantasma { font-size: 34vw; }
 }
