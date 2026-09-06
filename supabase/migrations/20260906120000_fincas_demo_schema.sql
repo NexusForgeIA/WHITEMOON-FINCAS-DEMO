@@ -138,6 +138,9 @@ create index if not exists fincas_auditoria_created_idx on fincas_auditoria (cre
 create or replace function fincas_auditoria_append_only()
 returns trigger
 language plpgsql
+-- search_path fijo: sin esto lo decide quien llame a la función. Ver la nota
+-- larga en 20260906130000_fincas_search_path.sql.
+set search_path = pg_catalog, public
 as $$
 begin
   raise exception 'fincas_auditoria es append-only: % no está permitido', tg_op;
@@ -168,6 +171,11 @@ returns table (
 )
 language sql
 stable
+-- search_path fijo: pg_catalog para los builtins (plainto_tsquery, ts_rank,
+-- la configuración 'spanish') y public para fincas_protocolos. Que el filtro
+-- por comunidad esté cableado no sirve de nada si `fincas_protocolos` puede
+-- resolverse a otra tabla.
+set search_path = pg_catalog, public
 as $$
   select p.id, p.comunidad_id, p.categoria, p.subtipo,
          p.proveedor_nombre, p.proveedor_tel, p.urgencia_default,
