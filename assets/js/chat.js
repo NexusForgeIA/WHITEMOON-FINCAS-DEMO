@@ -28,6 +28,27 @@ function iniciar() {
   let contexto = { comunidad_id: null, inmueble_id: null };
   let enVuelo = false;
 
+  function burbuja(quien, texto, clase) {
+    const div = document.createElement("div");
+    div.className = `burbuja ${clase}`;
+    div.innerHTML = quien
+      ? `<span class="quien">${esc(quien)}</span>${esc(texto)}`
+      : esc(texto);
+    hilo.appendChild(div);
+    hilo.scrollTop = hilo.scrollHeight;
+    return div;
+  }
+
+  function puntitos() {
+    const div = document.createElement("div");
+    div.className = "burbuja ia";
+    div.innerHTML =
+      '<span class="quien">Asistente</span><span class="escribiendo"><i></i><i></i><i></i></span>';
+    hilo.appendChild(div);
+    hilo.scrollTop = hilo.scrollHeight;
+    return div;
+  }
+
   async function envia(texto) {
     if (enVuelo || !texto.trim()) return;
     enVuelo = true;
