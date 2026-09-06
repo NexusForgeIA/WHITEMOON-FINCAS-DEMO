@@ -1,0 +1,452 @@
+/* =========================================================================
+   Whitemoon Fincas — landing y chat del vecino
+   =========================================================================
+   Decisiones de composición, para que no se deshagan sin querer:
+
+   · El hero NO es texto centrado. Es una rejilla 7/5 desequilibrada: el
+     titular a la izquierda, el chat vivo a la derecha. El producto se ve
+     antes de leer nada sobre él.
+   · Detrás del hero hay una fachada dibujada en CSS cuyas ventanas se
+     encienden solas. Es el elemento no textual que dice "edificios" sin
+     recurrir a un icono de casita.
+   · Los servicios NO son tres tarjetas iguales en rejilla. Son filas
+     alternas con un número enorme como elemento gráfico; la asimetría es
+     intencional y está en la clase .servicio:nth-child(even).
+   ========================================================================= */
+
+/* ------------------------------------------------------------- cabecera */
+
+.cab {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  backdrop-filter: blur(14px);
+  background: rgba(8, 8, 13, .72);
+  border-bottom: 1px solid var(--linea);
+}
+.cab-in {
+  max-width: var(--ancho);
+  margin: 0 auto;
+  padding: 14px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.marca { display: flex; align-items: center; gap: 12px; }
+.luna {
+  width: 30px; height: 30px; flex: none;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 30%, var(--p2), var(--p) 58%, #3a1f8c);
+  box-shadow: 0 0 24px -4px var(--p);
+}
+.marca-txt { line-height: 1.15; }
+.marca-txt b { font-weight: 700; font-size: 16px; letter-spacing: -.02em; }
+.marca-txt span { display: block; font-size: 11px; color: var(--muted); letter-spacing: .02em; }
+
+.cab-nav { display: flex; align-items: center; gap: 26px; }
+.cab-nav a.enlace { color: var(--muted); font-size: 13.5px; }
+.cab-nav a.enlace:hover { color: var(--text); text-decoration: none; }
+
+/* ------------------------------------------------------------------ hero */
+
+.hero { position: relative; overflow: hidden; padding: 74px 0 90px; }
+
+/* La fachada. Cada ventana late con su propio retardo, así que el patrón
+   no se lee como una animación sincronizada. */
+.fachada {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 46%;
+  min-width: 380px;
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  grid-auto-rows: 46px;
+  gap: 12px;
+  padding: 40px;
+  opacity: .5;
+  transform: skewY(-6deg) translateY(-40px);
+  pointer-events: none;
+  mask-image: radial-gradient(120% 90% at 78% 30%, #000 25%, transparent 72%);
+  -webkit-mask-image: radial-gradient(120% 90% at 78% 30%, #000 25%, transparent 72%);
+}
+.ventana {
+  border-radius: 3px;
+  background: var(--sup-2);
+  border: 1px solid var(--linea);
+}
+.ventana.on { animation: luz 7s ease-in-out infinite; }
+@keyframes luz {
+  0%, 100% { background: var(--sup-2); box-shadow: none; }
+  45%      { background: rgba(124, 77, 255, .5); box-shadow: 0 0 18px -2px var(--p); }
+  55%      { background: rgba(124, 77, 255, .5); box-shadow: 0 0 18px -2px var(--p); }
+}
+.ventana.g.on { animation-name: luzg; }
+@keyframes luzg {
+  0%, 100% { background: var(--sup-2); box-shadow: none; }
+  50%      { background: rgba(0, 212, 170, .45); box-shadow: 0 0 18px -2px var(--g); }
+}
+
+/* Texto fantasma decorativo. */
+.fantasma {
+  position: absolute;
+  left: -3vw; bottom: -5vh;
+  font-size: clamp(150px, 24vw, 380px);
+  font-weight: 700;
+  letter-spacing: -.06em;
+  color: #fff;
+  opacity: .035;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.hero-in {
+  position: relative;
+  z-index: 2;
+  max-width: var(--ancho);
+  margin: 0 auto;
+  padding: 0 28px;
+  display: grid;
+  grid-template-columns: 7fr 5fr;
+  gap: 58px;
+  align-items: center;
+}
+
+.hero h1 {
+  font-size: clamp(40px, 5.6vw, 78px);
+  font-weight: 200;
+  margin-bottom: 26px;
+}
+.hero h1 b { font-weight: 700; }
+
+/* La palabra rotatoria: altura fija para que el titular no dé saltos. */
+.rota {
+  display: inline-block;
+  position: relative;
+  height: 1.06em;
+  overflow: hidden;
+  vertical-align: bottom;
+  color: var(--g);
+  font-weight: 700;
+}
+.rota span {
+  display: block;
+  animation: rotar 10.5s cubic-bezier(.7, 0, .3, 1) infinite;
+}
+@keyframes rotar {
+  0%, 22%    { transform: translateY(0); }
+  25%, 47%   { transform: translateY(-100%); }
+  50%, 72%   { transform: translateY(-200%); }
+  75%, 97%   { transform: translateY(-300%); }
+  100%       { transform: translateY(-400%); }
+}
+
+.hero-sub {
+  font-size: 17px;
+  color: #c2c2d4;
+  max-width: 46ch;
+  margin-bottom: 32px;
+  font-weight: 300;
+}
+.hero-acc { display: flex; flex-wrap: wrap; gap: 12px; }
+
+/* --------------------------------------------------------- stats cristal */
+
+.stats {
+  position: relative;
+  z-index: 2;
+  max-width: var(--ancho);
+  margin: 0 auto;
+  padding: 0 28px;
+}
+.stats-in {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--linea);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio);
+  overflow: hidden;
+  backdrop-filter: blur(18px);
+}
+.stat { background: rgba(20, 20, 32, .6); padding: 26px 24px; }
+.stat b {
+  display: block;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -.04em;
+  color: var(--text);
+  line-height: 1.1;
+}
+.stat b em { font-style: normal; color: var(--g); }
+.stat span { font-size: 12.5px; color: var(--muted); }
+
+/* ------------------------------------------------------------- servicios */
+
+.seccion { padding: 92px 0; }
+.seccion-cab { max-width: 620px; margin-bottom: 54px; }
+.seccion-cab h2 { font-size: clamp(29px, 3.4vw, 44px); font-weight: 200; margin: 12px 0 14px; }
+.seccion-cab h2 b { font-weight: 700; }
+.seccion-cab p { color: var(--muted); font-size: 15px; }
+
+.servicios { display: grid; gap: 0; }
+
+/* Asimetría intencional: las filas pares se desplazan y cambian el orden
+   de las columnas. Sin esto serían tres tarjetas iguales, que es justo lo
+   que no queremos. */
+.servicio {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 34px;
+  align-items: start;
+  padding: 34px 0;
+  border-top: 1px solid var(--linea);
+}
+.servicio:last-child { border-bottom: 1px solid var(--linea); }
+.servicio:nth-child(even) { padding-left: 12%; }
+
+.servicio-num {
+  font-size: 88px;
+  font-weight: 700;
+  letter-spacing: -.06em;
+  line-height: .8;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--linea-2);
+  transition: -webkit-text-stroke-color .3s ease, color .3s ease;
+}
+.servicio:hover .servicio-num { -webkit-text-stroke-color: var(--p); }
+
+.servicio h3 { font-size: 21px; font-weight: 600; margin-bottom: 9px; }
+.servicio p { color: var(--muted); font-size: 14.5px; max-width: 60ch; }
+.servicio .det { margin-top: 12px; font-size: 12.5px; color: #9a9ab4; }
+.servicio .det b { color: var(--g); font-weight: 600; }
+
+/* ------------------------------------------------------------------ chat */
+
+.chat-panel {
+  border: 1px solid var(--linea);
+  border-radius: 18px;
+  background: linear-gradient(180deg, var(--sup-2), var(--sup-1));
+  box-shadow: var(--sombra);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 470px;
+}
+
+.chat-cab {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--linea);
+  background: rgba(124, 77, 255, .05);
+}
+.chat-cab .punto {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--g);
+  box-shadow: 0 0 0 0 rgba(0, 212, 170, .55);
+  animation: pulso 2.4s infinite;
+}
+@keyframes pulso {
+  70%  { box-shadow: 0 0 0 9px rgba(0, 212, 170, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 212, 170, 0); }
+}
+.chat-cab b { font-size: 14px; font-weight: 600; }
+.chat-cab span { font-size: 11.5px; color: var(--muted); }
+
+.chat-hilo {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 46vh;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.burbuja {
+  max-width: 88%;
+  padding: 11px 15px;
+  border-radius: 15px;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  animation: sube .24s ease;
+}
+@keyframes sube { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.burbuja.ia {
+  align-self: flex-start;
+  background: var(--sup-3);
+  border: 1px solid var(--linea);
+  border-bottom-left-radius: 5px;
+}
+.burbuja.yo {
+  align-self: flex-end;
+  background: linear-gradient(135deg, var(--p), #6a3fe0);
+  border-bottom-right-radius: 5px;
+  color: #fff;
+}
+.burbuja.sistema {
+  align-self: center;
+  max-width: 100%;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--muted);
+  background: none;
+  padding: 2px 0;
+}
+.burbuja .quien {
+  display: block;
+  font-size: 9.5px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.burbuja.yo .quien { color: rgba(255, 255, 255, .72); }
+
+.escribiendo { display: inline-flex; gap: 4px; align-items: center; height: 12px; }
+.escribiendo i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--muted);
+  animation: latido 1.15s infinite ease-in-out;
+}
+.escribiendo i:nth-child(2) { animation-delay: .16s; }
+.escribiendo i:nth-child(3) { animation-delay: .32s; }
+@keyframes latido { 0%, 60%, 100% { opacity: .3; } 30% { opacity: 1; } }
+
+.chat-form {
+  display: flex;
+  gap: 9px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--linea);
+}
+.chat-form input {
+  flex: 1;
+  min-width: 0;
+  background: var(--sup-3);
+  border: 1px solid var(--linea-2);
+  border-radius: var(--radio-s);
+  color: var(--text);
+  padding: 11px 14px;
+}
+.chat-form button {
+  flex: none;
+  padding: 0 20px;
+  border: 0;
+  border-radius: var(--radio-s);
+  background: linear-gradient(135deg, var(--p), #6a3fe0);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+.chat-form button:disabled { opacity: .45; cursor: not-allowed; }
+
+.chat-pie {
+  padding: 0 16px 14px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* Ficha lateral del chat: protocolo aplicado / expediente abierto. */
+.chat-datos { display: grid; gap: 12px; margin-top: 16px; }
+.datocard {
+  border: 1px solid var(--linea);
+  border-radius: var(--radio);
+  background: var(--sup-1);
+  padding: 15px 17px;
+}
+.datocard.protocolo { border-color: rgba(124, 77, 255, .42); }
+.datocard.expediente { border-color: rgba(0, 212, 170, .42); }
+.datocard h4 { font-size: 15px; margin: 8px 0 6px; font-weight: 600; }
+.datocard .cita {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--p2);
+  border-left: 2px solid var(--p);
+  padding: 4px 0 4px 10px;
+  margin-bottom: 10px;
+}
+.datocard .ref { font-size: 20px; font-weight: 700; color: var(--g); letter-spacing: .02em; }
+.datocard dl { display: grid; gap: 6px; margin: 0; }
+.datocard dl > div { display: grid; grid-template-columns: 96px 1fr; gap: 10px; }
+.datocard dt { font-size: 11.5px; color: var(--muted); }
+.datocard dd { margin: 0; font-size: 12.5px; font-weight: 500; }
+
+/* ------------------------------------------------------- aviso simulado */
+
+.simulado {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 15px 18px;
+  border: 1px solid rgba(255, 162, 62, .3);
+  border-left: 3px solid var(--alta);
+  border-radius: var(--radio);
+  background: rgba(255, 162, 62, .05);
+  font-size: 13px;
+  color: #d5d5e4;
+}
+.simulado b { color: var(--alta); }
+
+.confianza {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 15px 18px;
+  border: 1px solid rgba(0, 212, 170, .3);
+  border-left: 3px solid var(--g);
+  border-radius: var(--radio);
+  background: rgba(0, 212, 170, .05);
+  font-size: 13px;
+  color: #d5d5e4;
+}
+.confianza b { color: var(--g); }
+
+/* -------------------------------------------------------------- pie */
+
+.pie {
+  border-top: 1px solid var(--linea);
+  padding: 34px 0 52px;
+  margin-top: 40px;
+}
+.pie-in {
+  max-width: var(--ancho);
+  margin: 0 auto;
+  padding: 0 28px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  justify-content: space-between;
+  align-items: center;
+}
+.pie p { font-size: 12.5px; color: var(--muted); }
+.pie strong { color: var(--text); font-weight: 600; }
+
+/* -------------------------------------------------------- responsive */
+
+@media (max-width: 1040px) {
+  .hero-in { grid-template-columns: 1fr; gap: 40px; }
+  .fachada { display: none; }
+  .stats-in { grid-template-columns: repeat(2, 1fr); }
+  .servicio:nth-child(even) { padding-left: 0; }
+}
+
+@media (max-width: 680px) {
+  .wrap, .hero-in, .stats, .pie-in { padding-left: 18px; padding-right: 18px; }
+  .cab-in { padding: 12px 18px; }
+  .cab-nav { gap: 14px; }
+  .cab-nav a.enlace { display: none; }
+  .hero { padding: 46px 0 60px; }
+  .seccion { padding: 64px 0; }
+  .stats-in { grid-template-columns: 1fr; }
+  .servicio { grid-template-columns: 1fr; gap: 12px; }
+  .servicio-num { font-size: 60px; }
+  .fantasma { font-size: 34vw; }
+}

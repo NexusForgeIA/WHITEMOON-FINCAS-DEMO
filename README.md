@@ -1,145 +1,213 @@
-# WHITEMOON-FINCAS-DEMO
+# Whitemoon Fincas
 
-Demo comercial de **WhiteMoon Agencia IA** para administradores de fincas:
-un agente que atiende al propietario aplicando **el protocolo de SU comunidad**,
-y un panel CRM donde el administrador ve los expedientes y decide sobre los
-presupuestos.
+MVP de administración de fincas de **WhiteMoon Agencia IA**: una web pública
+donde el vecino cuenta su incidencia en chat libre, y un CRM privado donde el
+administrador lleva comunidades, proveedores, expedientes, presupuestos y
+facturación.
 
-**Demo en vivo:** https://nexusforgeia.github.io/WHITEMOON-FINCAS-DEMO/
+- **Web y chat del vecino:** https://nexusforgeia.github.io/WHITEMOON-FINCAS-DEMO/
+- **CRM (acceso administrador):** https://nexusforgeia.github.io/WHITEMOON-FINCAS-DEMO/admin.html
 
-> Datos ficticios. NetFincas y la telefonía están **simulados** y así se
-> anuncia en la propia página.
+> **Arranca vacío.** No hay datos de ejemplo. Cada sección del CRM tiene su
+> estado "aún no hay…" explicando qué hacer para empezar.
 
 ---
 
-## La prueba que se enseña en la reunión
+## ⚠ Lo que falta por enchufar
 
-Escribe **la misma frase** —"el ascensor está parado"— en las dos comunidades:
+Esto está construido y desplegado, pero hay tres cosas que dependen de
+decisiones o cuentas que todavía no existen. Sin ellas el sistema funciona,
+pero el circuito de correo se queda a medias — y lo dice, no lo disimula.
 
-| Comunidad | Proveedor que se activa | Protocolo citado |
-|---|---|---|
-| Madrid 1 | Ascensores **OTIS** — contrato Madrid 1 | *Manual de incidencias · Comunidad Madrid 1 · §3.1 Ascensores* |
-| Madrid 2 | Ascensores **DELTA** — contrato Madrid 2 | *Manual de incidencias · Comunidad Madrid 2 · §4.2 Ascensores* |
+| Qué | Dónde se pone | Estado | Sin ello |
+|---|---|---|---|
+| `RESEND_API_KEY` | Supabase → Edge Functions → Secrets | ❌ pendiente | La petición al proveedor se registra en el timeline como `pendiente` y `fincas-enviar-email` devuelve 503. El expediente se abre igual. |
+| Dominio remitente | Secret `FINCAS_FROM_EMAIL` | ❌ por definir | Se usa `onboarding@resend.dev`, que **sólo entrega al email de la cuenta de Resend**. Para escribir a proveedores reales hace falta un dominio verificado en Resend (`Whitemoon Fincas <avisos@tu-dominio>`). |
+| Cloudflare Email Routing | Secrets `FINCAS_INBOUND_TOKEN` + `FINCAS_INBOUND_EMAIL`, y el Worker | ❌ pendiente | `fincas-inbound` responde 503 y rechaza todo. Los presupuestos por correo no entran en la bandeja. Ver `infra/cloudflare-email-worker.js`. |
 
-Mismo texto, misma IA, respuesta distinta: porque la decisión no la toma el
-modelo, la toma la tabla de protocolos de esa comunidad.
+Ya configurado y funcionando: `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`,
+`TELEGRAM_CHAT_ID`.
+
+### Pasos para cerrar el correo
+
+1. **Resend.** Crear cuenta, verificar el dominio elegido (registros SPF/DKIM
+   que da Resend), generar API key. Poner en Supabase:
+   `RESEND_API_KEY` y `FINCAS_FROM_EMAIL="Whitemoon Fincas <avisos@dominio>"`.
+2. **Cloudflare Email Routing.** Verificar el dominio (MX + TXT), crear un
+   Worker con `infra/cloudflare-email-worker.js`, y enrutar
+   `presupuestos@dominio` → ese Worker.
+3. **Secreto compartido.** Inventar un valor largo y ponerlo *en los dos
+   sitios*: variable `FINCAS_INBOUND_TOKEN` del Worker y secret
+   `FINCAS_INBOUND_TOKEN` de Supabase. Añadir también
+   `FINCAS_INBOUND_EMAIL=presupuestos@dominio` para que el Reply-To de las
+   peticiones apunte ahí.
+
+---
+
+## Cómo funciona el circuito
+
+```
+Vecino escribe en el chat
+   │  no hay selector de comunidad: Nora la pregunta
+   ▼
+fincas-chat  ── buscar_comunidad ─→ identifica la finca
+             ── buscar_protocolo ─→ protocolo ESTRUCTURADO de ESA comunidad
+             ── consultar_normativa → FTS sobre los PDF de ESA comunidad
+             ── crear_expediente  ─→ EXP-AAAA-NNNN
+             ── avisar_proveedor  ─→ fincas-enviar-email (Resend)
+   │                                        │
+   │                                        ▼
+   │                            correo real al proveedor
+   │                            asunto: [EXP-2026-0001] …
+   ▼                                        │
+Telegram: nuevo expediente                  ▼
+                                  el proveedor responde
+                                            │
+                        Cloudflare Email Routing → Worker
+                                            ▼
+                                    fincas-inbound
+                              · engancha por la referencia del asunto
+                              · guarda el PDF en Storage
+                              · crea el presupuesto en 'pendiente'
+                              · Telegram: presupuesto recibido
+                                            ▼
+                            Bandeja del CRM → el admin aprueba
+```
+
+Si en cualquier punto falta el dato, **el agente escala a administración en
+vez de inventarlo**.
 
 ---
 
 ## Sin embeddings
 
-No hay vectores, ni Voyage, ni base vectorial. El "RAG" de protocolos son dos
-cosas mucho más baratas y mucho más auditables:
+El "RAG" son dos cosas, ninguna vectorial:
 
-1. **Datos estructurados por comunidad** — `fincas_protocolos` guarda, para
-   cada comunidad, cada categoría y cada subtipo: proveedor asignado,
-   teléfono, urgencia por defecto, pasos y la cita del manual.
-2. **Búsqueda de texto de Postgres** (`tsvector` en español, índice GIN) para
-   cuando el vecino no usa la palabra exacta: "se ha quedado tirado el
-   elevador" encuentra igualmente el protocolo de ascensores.
+1. **Protocolos estructurados por comunidad** — `fincas_protocolos` guarda,
+   para cada finca, cada categoría y subtipo: proveedor asignado, urgencia,
+   pasos y la cita del manual.
+2. **Búsqueda de texto de Postgres** (`tsvector` español, índice GIN) sobre
+   esos protocolos y sobre los PDF de normativa que sube el administrador.
+   El texto del PDF se extrae **en el navegador del admin** con pdf.js.
 
-Claude (`claude-haiku-4-5-20251001`) hace lo que sabe hacer: conversar,
-clasificar y llamar a las herramientas. Lo que se le enseña al usuario —el
-proveedor, el teléfono, la cita— sale de la base de datos, no del modelo.
+Claude (`claude-haiku-4-5-20251001`) conversa, pregunta y clasifica. Lo que se
+le enseña al vecino sale de la base de datos.
 
 ---
 
-## Cómo se garantiza que una comunidad no ve la otra
+## Seguridad
 
-Tres capas, de dentro afuera. No se confía en el prompt.
+### `anon` no lee nada del CRM
 
-1. **SQL.** `fincas_buscar_protocolo(p_comunidad, p_consulta)` lleva
-   `where comunidad_id = p_comunidad` cableado. Si llega nulo, la comparación
-   es nula y devuelve **cero filas**: falla cerrada. No existe una forma de
-   pedir "todos los protocolos".
-2. **Servidor.** `fincas-chat` mantiene una `comunidadActiva`. La herramienta
-   `buscar_protocolo` declara `comunidad_id` en su esquema, pero antes de
-   tocar la base se compara con la comunidad activa: si no coincide, se
-   **rechaza la llamada**, se le devuelve el error al modelo y queda anotado
-   en `fincas_auditoria` como `protocolo_denegado`.
-3. **Al releer.** Al abrir el expediente, el protocolo se vuelve a leer
-   filtrando por comunidad, y la cita y el proveedor que se guardan salen de
-   esa fila — nunca de lo que haya dicho el modelo.
+RLS estricta: las tablas `fincas_*` no tienen ninguna policy para `anon`. La
+clave pública sirve para identificar el proyecto y para el login, nada más.
+El chat del vecino funciona porque no lee la base: habla con una Edge Function
+que usa service role y sólo devuelve lo que esa conversación necesita.
 
-La comunidad activa sólo se fija de dos maneras: el selector de la web, o
-resolver un inmueble real con `buscar_inmueble`. Nunca por deducción.
+El equipo entra con Supabase Auth y necesita además **fila activa en
+`fincas_perfiles`**: un usuario autenticado sin perfil no ve nada.
 
-Las dos funciones de la demo llevan además `search_path = pg_catalog, public`
-fijo. Tener el filtro por comunidad cableado no serviría de nada si
-`fincas_protocolos` pudiera resolverse a otra tabla porque quien llama tenga
-otro esquema por delante en su search_path.
+### El IBAN está fuera del alcance de la IA
+
+Tres cerraduras, no una:
+
+1. **Otro esquema.** `fincas_privado.datos_comunidad` no está en los esquemas
+   que expone PostgREST. No hay URL de la API que lo devuelva, ni con la clave
+   anon ni con service role.
+2. **Sin herramienta.** El agente no tiene ninguna tool que lea ni escriba
+   datos bancarios. Su catálogo completo es: `buscar_comunidad`,
+   `buscar_inmueble`, `buscar_protocolo`, `consultar_normativa`,
+   `crear_expediente`, `avisar_proveedor`, `escalar_a_administracion`.
+3. **Lista blanca en el cliente de datos.** `fincas-chat` filtra cada ruta
+   contra `TABLAS_PERMITIDAS` / `RPC_PERMITIDAS` **antes** de salir a la red.
+   `fincas_privado_leer`, `fincas_privado_guardar`, `fincas_presupuestos` y
+   `fincas_facturas` no están en la lista: el agente tampoco puede adjudicar
+   ni facturar.
+
+El admin los ve por `fincas-privado`, que valida su JWT y **registra cada
+consulta** en la auditoría (sin guardar nunca el valor).
+
+### Auditoría append-only
+
+`fincas_auditoria` la escriben triggers de la propia base, no el cliente.
+`UPDATE`, `DELETE` **y `TRUNCATE`** están bloqueados por trigger — falla
+incluso con service role.
+
+### Nada se emite solo
+
+Presupuestos y facturas nacen en `pendiente` / `borrador`. La decisión la toma
+una persona desde el CRM, con su email en el registro. El `UPDATE` lleva el
+estado de origen en el filtro, así que dos personas decidiendo a la vez no se
+pisan.
 
 ---
 
-## La IA prepara; el administrador decide
+## Integrador simulado
 
-Los presupuestos entran en estado `pendiente` y se quedan ahí. El agente **no
-adjudica ni emite**. Aprobar o rechazar:
-
-- lo hace una persona desde el panel,
-- se escribe por la Edge Function `fincas-presupuesto` con service role
-  (el rol `anon` **no tiene policy de UPDATE**: aunque alguien manipule el JS
-  desde la consola del navegador, no puede aprobar nada),
-- y queda registrado en `fincas_auditoria`, que es **append-only** por trigger:
-  `UPDATE` y `DELETE` levantan excepción incluso con service role.
+**NetFincas** es lo único simulado, y se etiqueta donde aparece: en la web y
+en el system prompt del agente, que lo dice si le preguntan. El correo, los
+expedientes, los presupuestos y la facturación son reales.
 
 ---
 
 ## Arquitectura
 
 ```
-index.html                     una sola página, dos vistas
-assets/css/estilo.css          paleta WhiteMoon, sin frameworks
-assets/js/config.js            cliente Supabase (anon) + utilidades
-assets/js/chat.js              vista del propietario
-assets/js/panel.js             kanban, ficha y cola de aprobación (realtime)
-assets/js/app.js               conmutador de vistas
-supabase/migrations/           esquema, RLS y seed
-supabase/functions/            las tres Edge Functions
+index.html                  landing + chat libre del vecino
+admin.html                  login + CRM privado
+assets/css/base.css         tokens WhiteMoon compartidos
+assets/css/landing.css      portada y chat
+assets/css/admin.css        CRM
+assets/js/config.js         cliente Supabase + utilidades
+assets/js/landing.js        fachada animada y scroll reveal
+assets/js/chat.js           chat del vecino
+assets/js/admin.js          CRM completo
+infra/                      Worker de Cloudflare Email Routing
+supabase/migrations/        esquema, RLS, funciones
+supabase/functions/         Edge Functions
 ```
 
-### Base de datos (proyecto `mlaqtniujnvfxcvcourm`)
+### Tablas (proyecto `mlaqtniujnvfxcvcourm`)
 
 | Tabla | Para qué |
 |---|---|
-| `fincas_comunidades` | las dos comunidades de la demo |
+| `fincas_perfiles` | quién es del equipo (liga a `auth.users`) |
+| `fincas_comunidades` | las fincas |
 | `fincas_inmuebles` | viviendas y propietarios |
-| `fincas_protocolos` | **el corazón**: qué hace cada comunidad ante cada caso |
-| `fincas_proveedores` | catálogo por comunidad |
-| `fincas_expedientes` | incidencias, con `ref` EXP-AAAA-NNNN |
-| `fincas_presupuestos` | cola de aprobación (`pendiente`/`aprobado`/`rechazado`) |
-| `fincas_auditoria` | append-only, quién hizo qué |
+| `fincas_proveedores` | con **email**, que es lo que hace real el aviso |
+| `fincas_protocolos` | qué hace cada comunidad ante cada caso |
+| `fincas_documentos` | normativa en PDF + texto indexado (FTS) |
+| `fincas_expedientes` | incidencias, `ref` EXP-AAAA-NNNN |
+| `fincas_comunicaciones` | timeline de correos enviados y recibidos |
+| `fincas_presupuestos` | bandeja + cola de aprobación |
+| `fincas_facturas` | facturas y certificados de deuda, en borrador |
+| `fincas_auditoria` | append-only |
+| `fincas_privado.datos_comunidad` | **IBAN y presidente — esquema no expuesto** |
 
-RLS activo en todas: `anon` sólo puede `SELECT`. Todas las escrituras van por
-Edge Functions con service role.
+### Edge Functions
 
-### Edge Functions (`verify_jwt: false`, CORS abierto)
-
-| Función | Qué hace |
-|---|---|
-| `fincas-chat` | Claude + 4 herramientas: `buscar_inmueble`, `buscar_protocolo`, `crear_expediente`, `crear_parte_proveedor` |
-| `fincas-notify` | aviso por Telegram: `🏢 EXP-… · {comunidad} {puerta} · {subtipo} · {proveedor} avisado` |
-| `fincas-presupuesto` | única vía por la que un presupuesto cambia de estado |
-
-Secrets (nunca en el repo ni en el cliente): `ANTHROPIC_API_KEY`,
-`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
+| Función | Qué hace | Puerta |
+|---|---|---|
+| `fincas-chat` | el agente, con lista blanca de acceso a datos | pública (la usa el vecino) |
+| `fincas-enviar-email` | petición de presupuesto vía Resend | service key interna o JWT de staff |
+| `fincas-inbound` | recibe la respuesta del proveedor | token compartido |
+| `fincas-notify` | avisos por Telegram | pública, no lee datos |
+| `fincas-privado` | IBAN y presidente | JWT de staff, y sólo eso |
+| `fincas-presupuesto` | **retirada** — devuelve 410 | — |
 
 ---
 
-## Guion de la demo
+## Primeros pasos en el CRM
 
-1. **Chat del propietario**, comunidad **Madrid 1** → "el ascensor está
-   parado". Nora pregunta si hay alguien atrapado y la tarjeta lateral ya
-   enseña el protocolo de Madrid 1 con OTIS.
-2. Responder "no, no hay nadie dentro". Se abre el expediente
-   `EXP-AAAA-NNNN`, se da parte a OTIS y se cita la sección del manual.
-3. Cambiar el selector a **Madrid 2** y repetir *la misma frase*. Ahora es
-   **DELTA** y la cita es la del manual de Madrid 2.
-4. Probar un caso sin protocolo ("plaga de cucarachas"): Nora **no se lo
-   inventa**, lo escala al equipo.
-5. **Panel del administrador**: los expedientes recién abiertos aparecen en
-   el kanban en tiempo real. Abrir la ficha y enseñar el *protocolo citado*.
-6. Aprobar el presupuesto de 800 € y explicar que la IA nunca adjudica sola.
+1. Entrar en `admin.html`.
+2. **Comunidades** → dar de alta la finca (nombre y dirección).
+3. Abrir su ficha → rellenar **presidente e IBAN** (marcado como dato
+   protegido) y subir los **estatutos en PDF**.
+4. **Proveedores** → alta con **email**, que es lo que permite pedirle
+   presupuesto.
+5. Volver a la ficha de la comunidad → **añadir protocolos** (categoría,
+   subtipo, proveedor, urgencia, pasos y la cita del manual).
+6. Probar el chat de la web como si fueras un vecino.
 
 ---
 
