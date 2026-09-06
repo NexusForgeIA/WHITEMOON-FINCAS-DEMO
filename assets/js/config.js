@@ -49,9 +49,26 @@ export const ETIQUETA_ESTADO = {
   nuevo: "Nuevo", asignado: "Asignado", en_curso: "En curso", cerrado: "Cerrado",
 };
 
-/** "fuga_zonas_comunes" → "Fuga zonas comunes" */
+/* Las categorías y subtipos se guardan como slugs ASCII para que el modelo
+   los escriba sin fallar y para que el tsvector no dependa de tildes. Al
+   pintarlos hay que devolverles el castellano: "Fontaneria" y "Apagon" en la
+   pantalla de una demo comercial cantan. */
+const ETIQUETA_SLUG = {
+  ascensores:           "Ascensores",
+  fontaneria:           "Fontanería",
+  electricidad:         "Electricidad",
+  parado:               "Parado",
+  atrapamiento:         "Atrapamiento",
+  fuga_zonas_comunes:   "Fuga en zonas comunes",
+  apagon_zonas_comunes: "Apagón en zonas comunes",
+};
+
+/** "fuga_zonas_comunes" → "Fuga en zonas comunes". Los slugs desconocidos
+    caen en el genérico: guiones bajos fuera y primera letra en mayúscula. */
 export function humaniza(s) {
-  const t = String(s ?? "").replace(/_/g, " ").trim();
+  const clave = String(s ?? "").trim();
+  if (ETIQUETA_SLUG[clave]) return ETIQUETA_SLUG[clave];
+  const t = clave.replace(/_/g, " ").trim();
   return t ? t[0].toUpperCase() + t.slice(1) : "";
 }
 
