@@ -624,6 +624,24 @@ function pintaComunidades() {
       <div class="campo"><label for="c-cif">CIF</label>
         <input id="c-cif" type="text" maxlength="20" placeholder="H12345678"></div>
     </div>
+
+    <div class="caja caja-protegida" style="margin:16px 0 0">
+      <h3>Presidente de la comunidad <span class="protegido">🔐 Dato protegido</span></h3>
+      <p class="sub">
+        Datos personales de un vecino. No se guardan con el resto de la ficha:
+        van al esquema protegido, el mismo que el IBAN, y sólo los ve el equipo.
+        El asistente de IA no tiene forma de llegar a ellos. Los tres son opcionales.
+      </p>
+      <div class="rejilla">
+        <div class="campo"><label for="c-pres">Presidente</label>
+          <input id="c-pres" type="text" maxlength="160" placeholder="Marta Iglesias Cano"></div>
+        <div class="campo"><label for="c-pres-tel">Teléfono del presidente</label>
+          <input id="c-pres-tel" type="tel" maxlength="40" placeholder="600 100 103"></div>
+        <div class="campo ancho"><label for="c-pres-email">Email del presidente</label>
+          <input id="c-pres-email" type="email" maxlength="160" placeholder="presidente@ejemplo.es"></div>
+      </div>
+    </div>
+
     <div class="acciones-form"><button class="btn btn-p" id="c-crear">Dar de alta</button></div>
   </div>`;
 
@@ -646,14 +664,49 @@ function pintaComunidades() {
   $("c-crear").onclick = creaComunidad;
 }
 
+/**
+ * El alta va en dos escrituras a propósito, no por descuido.
+ *
+ * La ficha de la comunidad se inserta contra la tabla pública, con el JWT
+ * del administrador y bajo RLS. Los datos del presidente son personales y NO
+ * pasan por ahí: van por fincas-privado, que los mete en el esquema que la
+ * API no expone. Guardarlos juntos sería más cómodo y dejaría el teléfono
+ * de un vecino en una tabla que lee todo el equipo y que el agente sí tiene
+ * a tiro.
+ *
+ * Si la segunda escritura falla, la comunidad ya está creada: se avisa y se
+ * dice dónde terminar de rellenarlo, en vez de dejarlo en silencio.
+ */
 async function creaComunidad() {
   const nombre = $("c-nombre").value.trim();
   const direccion = $("c-direccion").value.trim();
   if (!nombre || !direccion) return alert("Nombre y dirección son obligatorios.");
-  const { error } = await sb.from("fincas_comunidades").insert({
+
+  const { data, error } = await sb.from("fincas_comunidades").insert({
     nombre, direccion, cif: $("c-cif").value.trim(),
-  });
+  }).select();
   if (error) return alert("No se ha podido crear: " + error.message);
+
+  const creada = data?.[0];
+  const presidente = {
+    presidente_nombre: $("c-pres").value.trim(),
+    presidente_telefono: $("c-pres-tel").value.trim(),
+    presidente_email: $("c-pres-email").value.trim(),
+  };
+
+  if (creada && Object.values(presidente).some(Boolean)) {
+    const r = await fetch(FN("fincas-privado"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${await jwt()}` },
+      body: JSON.stringify({ accion: "guardar", comunidad_id: creada.id, ...presidente }),
+    }).then((x) => x.json()).catch(() => null);
+
+    if (!r?.ok) {
+      alert("La comunidad se ha creado, pero no se han podido guardar los datos del " +
+            "presidente. Ábrela y vuelve a intentarlo desde su ficha.");
+    }
+  }
+
   await cargaTodo();
   render();
 }
@@ -722,11 +775,13 @@ async function cargaDatosProtegidos(id) {
     <div class="rejilla">
       <div class="campo"><label for="p-pres">Presidente</label>
         <input id="p-pres" type="text" maxlength="160" value="${esc(d.presidente_nombre)}"></div>
-      <div class="campo"><label for="p-cont">Contacto del presidente</label>
-        <input id="p-cont" type="text" maxlength="160" value="${esc(d.presidente_contacto)}"></div>
+      <div class="campo"><label for="p-pres-tel">Teléfono del presidente</label>
+        <input id="p-pres-tel" type="tel" maxlength="40" value="${esc(d.presidente_telefono)}"></div>
+      <div class="campo"><label for="p-pres-email">Email del presidente</label>
+        <input id="p-pres-email" type="email" maxlength="160" value="${esc(d.presidente_email)}"></div>
       <div class="campo"><label for="p-iban">IBAN de la comunidad</label>
         <input id="p-iban" type="text" maxlength="40" value="${esc(d.iban)}" placeholder="ES00 0000 0000 0000 0000 0000"></div>
-      <div class="campo"><label for="p-notas">Notas internas</label>
+      <div class="campo ancho"><label for="p-notas">Notas internas</label>
         <input id="p-notas" type="text" maxlength="200" value="${esc(d.notas)}"></div>
     </div>
     <div class="acciones-form"><button class="btn-mini ok" id="p-guardar">Guardar datos protegidos</button></div>`;
@@ -739,7 +794,8 @@ async function cargaDatosProtegidos(id) {
       body: JSON.stringify({
         accion: "guardar", comunidad_id: id,
         presidente_nombre: $("p-pres").value,
-        presidente_contacto: $("p-cont").value,
+        presidente_telefono: $("p-pres-tel").value,
+        presidente_email: $("p-pres-email").value,
         iban: $("p-iban").value,
         notas: $("p-notas").value,
       }),
@@ -998,6 +1054,9 @@ function pintaProveedores() {
         <input id="pv-nombre" type="text" maxlength="140" placeholder="Ascensores OTIS — contrato Serrano"></div>
       <div class="campo"><label for="pv-esp">Especialidad</label>
         <input id="pv-esp" type="text" maxlength="60" placeholder="ascensores"></div>
+      <div class="campo"><label for="pv-contacto">Persona de contacto</label>
+        <input id="pv-contacto" type="text" maxlength="120" placeholder="Marta Ruiz, jefa de servicio">
+        <span class="ayuda">Con quién se habla en esa empresa. Opcional.</span></div>
       <div class="campo"><label for="pv-email">Email</label>
         <input id="pv-email" type="email" maxlength="160" placeholder="avisos@proveedor.es"></div>
       <div class="campo"><label for="pv-tel">Teléfono</label>
@@ -1023,6 +1082,11 @@ function pintaProveedores() {
               ${p.email ? esc(p.email) : "⚠ sin email"} ·
               ${esc(nombreComunidad(p.comunidad_id))}
             </p>
+            ${p.contacto_nombre || p.tel || p.zona ? `<p class="fila-sub">
+              ${[p.contacto_nombre ? "Contacto: " + esc(p.contacto_nombre) : "",
+                 p.tel ? esc(p.tel) : "",
+                 p.zona ? esc(p.zona) : ""].filter(Boolean).join(" · ")}
+            </p>` : ""}
           </div>
           <div class="fila-acc">
             ${p.email ? '<span class="chip ok">correo listo</span>' : '<span class="chip aviso">falta email</span>'}
@@ -1048,6 +1112,7 @@ async function creaProveedor() {
     comunidad_id: $("pv-comunidad").value,
     nombre,
     especialidad: $("pv-esp").value.trim(),
+    contacto_nombre: $("pv-contacto").value.trim(),
     email: $("pv-email").value.trim(),
     tel: $("pv-tel").value.trim(),
     zona: $("pv-zona").value.trim(),

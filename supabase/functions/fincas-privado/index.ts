@@ -19,11 +19,16 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
    comparte es el código: su cliente de base lleva una lista blanca y estas
    rutas no están en ella.
 
+   QUÉ GUARDA
+   El IBAN de la comunidad y los datos del presidente: nombre, teléfono y
+   email. Los tres del presidente son datos personales de un vecino, así que
+   viven donde el IBAN y salen por donde el IBAN: por aquí y con JWT.
+
    Contrato
    --------
    POST { accion: "leer",    comunidad_id }
    POST { accion: "guardar", comunidad_id, presidente_nombre,
-                             presidente_contacto, iban, notas }
+                             presidente_telefono, presidente_email, iban, notas }
    Cabecera obligatoria: Authorization: Bearer <JWT del admin>
    ========================================================================= */
 
@@ -114,7 +119,10 @@ Deno.serve(async (req: Request) => {
       });
       return json({
         ok: true,
-        datos: d ?? { presidente_nombre: "", presidente_contacto: "", iban: "", notas: "" },
+        datos: d ?? {
+          presidente_nombre: "", presidente_telefono: "", presidente_email: "",
+          iban: "", notas: "",
+        },
       });
     }
 
@@ -124,7 +132,8 @@ Deno.serve(async (req: Request) => {
         body: JSON.stringify({
           p_comunidad: comunidadId,
           p_presidente_nombre: txt((c as any).presidente_nombre, 160),
-          p_presidente_contacto: txt((c as any).presidente_contacto, 160),
+          p_presidente_telefono: txt((c as any).presidente_telefono, 40),
+          p_presidente_email: txt((c as any).presidente_email, 160).toLowerCase(),
           p_iban: txt((c as any).iban, 40).replace(/\s+/g, "").toUpperCase(),
           p_notas: txt((c as any).notas, 1000),
           p_actor: actor,
