@@ -343,7 +343,7 @@ supabase/functions/         Edge Functions
 | `fincas_panel_acceso` | hash bcrypt de la clave del panel; RLS sin políticas |
 | `fincas_panel_intentos` | fallos por origen, para frenar la fuerza bruta |
 | `fincas_auditoria` | append-only; distingue persona, `agente-ia` y `servicio` |
-| `fincas_privado.datos_comunidad` | **IBAN y presidente — esquema no expuesto** |
+| `fincas_privado.datos_comunidad` | **IBAN y presidente (nombre, teléfono, email) — esquema no expuesto** |
 
 ### Edge Functions
 
